@@ -1,0 +1,11 @@
+services:
+  nodejs-mergerr:
+    build: .
+    container_name: nodejs-mergerr
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - /data/downloads/torrents:/data/downloads/torrents
+    restart: unless-stopped

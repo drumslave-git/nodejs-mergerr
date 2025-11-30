@@ -1,0 +1,16 @@
+{
+  "name": "movie-merge-app",
+  "version": "1.0.0",
+  "description": "A simple Node.js web app to monitor a folder for multi‑part movies and merge them on demand.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "docker:up": "docker-compose -f compose.yml up -d",
+    "docker:down": "docker-compose -f compose.yml down",
+    "docker:dev:up": "docker-compose -f compose.yml -f compose.dev.yml up -d",
+    "docker:dev:down": "docker-compose -f compose.yml -f compose.dev.yml down"
+  },
+  "dependencies": {
+    
+  }
+}

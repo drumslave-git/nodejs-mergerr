@@ -1,0 +1,7 @@
+services:
+  nodejs-mergerr:
+    volumes:
+      - /data/downloads/torrents:/data/downloads/torrents
+      - ./server.js:/app/server.js
+      - ./public:/app/public
+    command: ["node", "--watch", "server.js"]
