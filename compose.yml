@@ -7,5 +7,5 @@ services:
     env_file:
       - stack.env
     volumes:
-      - ${TORRENTS_DIR}:${TORRENTS_DIR}
+      - ${TORRENTS_DIR_HOST}:${TORRENTS_DIR}
     restart: unless-stopped
