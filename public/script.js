@@ -56,7 +56,7 @@
   function renderMovies(movies) {
     moviesContainer.innerHTML = '';
     if (!movies || movies.length === 0) {
-      moviesContainer.innerHTML = '<p>No multi-part movies detected.</p>';
+      moviesContainer.innerHTML = '<p>No completed torrents detected.</p>';
       return;
     }
     movies.forEach((movie) => {
@@ -66,10 +66,10 @@
       title.textContent = movie.name;
       const button = document.createElement('button');
       button.textContent = 'Merge';
-      const unavailable = movie.warning || !movie.files || movie.files.length < 2 || movie.available === false;
+      const unavailable = movie.available === false || movie.mergeable === false;
       if (unavailable) {
         button.disabled = true;
-        button.textContent = 'Unavailable';
+        button.textContent = 'Not mergeable';
       }
       button.onclick = async () => {
         logContainer.textContent = '';

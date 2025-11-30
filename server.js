@@ -32,17 +32,8 @@ const config = {
   qbitPort: parseInt(process.env.QBIT_PORT || '8080', 10),
   qbitUser: process.env.QBIT_USER || '',
   qbitPassword: process.env.QBIT_PASSWORD || '',
-  targetDir: path.resolve(process.env.TARGET_DIR || path.join(__dirname, 'data')),
   qbitCategory: process.env.QBIT_CATEGORY || ''
 };
-
-// Ensure the target directory exists.
-if (!fs.existsSync(config.targetDir)) {
-  fs.mkdirSync(config.targetDir, { recursive: true });
-  log('info', 'Created target directory', { targetDir: config.targetDir });
-} else {
-  log('info', 'Using existing target directory', { targetDir: config.targetDir });
-}
 
 // Build the base URL for qBittorrent's Web API.
 const qbitBaseUrl = (() => {
@@ -144,7 +135,7 @@ function deriveTorrentDirectory(torrent) {
 async function fetchCompletedTorrentDirectories() {
   if (!config.qbitCategory) {
     if (!loggedMissingCategory) {
-      log('warn', 'QBIT_CATEGORY not set; scanning local target directory only');
+      log('warn', 'QBIT_CATEGORY not set; qBittorrent scan skipped');
       loggedMissingCategory = true;
     }
     return null;
@@ -208,78 +199,78 @@ function isVideoFile(fileName) {
 }
 
 /**
- * Scan the target directory for multi‑part movies.  A multi‑part movie is
- * defined as a subdirectory containing two or more video files.  The
- * returned object maps an ID (the absolute path to the directory) to
- * metadata about the movie: its display name and the list of video
- * files.  File names are sorted using localeCompare with numeric
- * collation to handle numbered parts correctly.
+ * Build a torrent entry description. Always returns an object so UI can
+ * show single-file torrents and missing paths.
  */
-function buildMovieFromDirectory(dirPath, nameOverride) {
+function buildTorrentEntry(dirPath, nameOverride, exists = true) {
+  const name = nameOverride || path.basename(dirPath);
+  if (!exists) {
+    return {
+      id: dirPath,
+      name,
+      files: [],
+      warning: 'Directory not found on server',
+      available: false,
+      mergeable: false
+    };
+  }
+  let files = [];
   try {
     const stats = fs.statSync(dirPath);
-    if (!stats.isDirectory()) {
-      return null;
+    if (stats.isDirectory()) {
+      files = fs
+        .readdirSync(dirPath)
+        .filter((f) => isVideoFile(f))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
     }
   } catch (err) {
-    return null;
+    return {
+      id: dirPath,
+      name,
+      files: [],
+      warning: 'Directory not accessible',
+      available: false,
+      mergeable: false
+    };
   }
-  const files = fs
-    .readdirSync(dirPath)
-    .filter((f) => isVideoFile(f))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  if (files.length < 2) {
-    return null;
+
+  const mergeable = files.length >= 2;
+  let warning = '';
+  if (files.length === 0) {
+    warning = 'No video files found';
+  } else if (files.length === 1) {
+    warning = 'Single-file torrent; merge not needed';
   }
-  const name = nameOverride || path.basename(dirPath);
+
   return {
     id: dirPath,
     name,
-    files: files.map((f) => path.join(dirPath, f))
+    files: files.map((f) => path.join(dirPath, f)),
+    available: true,
+    mergeable,
+    warning: warning || undefined
   };
 }
 
 /**
- * Scan for multi-part movies.  If qBittorrent supplied directories are
- * provided, only those locations are considered.  Otherwise the scan falls
- * back to walking the configured target directory.
+ * Scan for torrents from qBittorrent.  All completed torrents in the
+ * category are shown; merge is enabled only for entries with 2+ video files.
  */
-function scanForMultiPartMovies(allowedDirectories) {
+function scanForTorrents(allowedDirectories) {
   const result = {};
   const usingProvidedDirectories = Array.isArray(allowedDirectories);
-  let directoriesToScan = usingProvidedDirectories ? allowedDirectories : [];
-
-  if (!usingProvidedDirectories) {
-    const entries = fs.readdirSync(config.targetDir, { withFileTypes: true });
-    directoriesToScan = entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => ({ dirPath: path.join(config.targetDir, entry.name), name: entry.name, exists: true }));
-  } else if (directoriesToScan.length === 0) {
-    return result;
-  }
+  const directoriesToScan = usingProvidedDirectories ? allowedDirectories : [];
 
   directoriesToScan.forEach((entry) => {
     const dirPath = entry.dirPath || entry;
     const displayName = entry.name || path.basename(dirPath);
-    if (entry.exists === false) {
-      result[dirPath] = {
-        id: dirPath,
-        name: displayName,
-        files: [],
-        warning: 'Directory not found on server',
-        available: false
-      };
-      return;
-    }
-    const movie = buildMovieFromDirectory(dirPath, displayName);
-    if (movie) {
-      movie.available = true;
-      result[movie.id] = movie;
-    }
+    const exists = entry.exists !== false;
+    const torrentEntry = buildTorrentEntry(dirPath, displayName, exists);
+    result[torrentEntry.id] = torrentEntry;
   });
 
   log('info', 'Scan completed', {
-    source: usingProvidedDirectories ? 'qbitCategory' : 'targetDir',
+    source: 'qbitCategory',
     directories: directoriesToScan.length,
     movies: Object.keys(result).length
   });
@@ -323,7 +314,7 @@ function broadcastEvent(event, data) {
  */
 async function refreshMovies() {
   const directoriesFromQbit = await fetchCompletedTorrentDirectories();
-  const newList = scanForMultiPartMovies(directoriesFromQbit);
+  const newList = scanForTorrents(directoriesFromQbit);
   const currentKeys = Object.keys(multiPartMovies);
   const newKeys = Object.keys(newList);
   // Check if the sets of keys differ, or if any movie's file list changed.
@@ -349,7 +340,7 @@ async function refreshMovies() {
   }
 }
 
-// Periodically rescan the target directory every 10 seconds.
+// Periodically rescan qBittorrent results every 10 seconds.
 refreshMovies().catch((err) => {
   console.error('Initial refresh failed:', err);
 });
@@ -492,7 +483,7 @@ function requestHandler(req, res) {
         const movie = multiPartMovies[id];
         const jobId = id;
         const channel = Buffer.from(jobId).toString('base64');
-        if (!movie.available || !movie.files || movie.files.length < 2) {
+        if (!movie.available || !movie.mergeable) {
           log('warn', 'Merge requested for unavailable movie', { id });
           res.statusCode = 400;
           res.setHeader('Content-Type', 'application/json');
