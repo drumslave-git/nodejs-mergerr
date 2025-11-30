@@ -123,8 +123,7 @@ function deriveTorrentDirectory(torrent) {
     return null;
   }
   const normalized = path.normalize(candidate);
-  const dirPath = path.extname(normalized) ? path.dirname(normalized) : normalized;
-  return path.resolve(dirPath);
+  return path.resolve(normalized);
 }
 
 /**
