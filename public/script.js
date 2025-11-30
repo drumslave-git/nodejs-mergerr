@@ -105,11 +105,13 @@
       const outputLine = document.createElement('div');
       outputLine.textContent = `Merged file: ${movie.name}.mp4`;
       const filesHeader = document.createElement('div');
-      filesHeader.textContent = `Files (${(movie.files && movie.files.length) || 0}):`;
+      const allFiles = (movie.filesAll && movie.filesAll.length ? movie.filesAll : movie.files) || [];
+      const videoCount = (movie.files && movie.files.length) || 0;
+      filesHeader.textContent = `Files (${allFiles.length}) - videos: ${videoCount}`;
       const fileList = document.createElement('ul');
       fileList.className = 'file-list';
-      if (movie.files && movie.files.length) {
-        movie.files.forEach((filePath) => {
+      if (allFiles.length) {
+        allFiles.forEach((filePath) => {
           const li = document.createElement('li');
           li.textContent = filePath;
           fileList.appendChild(li);

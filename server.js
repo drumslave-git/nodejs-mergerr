@@ -209,43 +209,47 @@ function buildTorrentEntry(dirPath, nameOverride, exists = true) {
       id: dirPath,
       name,
       files: [],
+      filesAll: [],
       warning: 'Directory not found on server',
       available: false,
       mergeable: false
     };
   }
-  let files = [];
+  let allFiles = [];
+  let videoFiles = [];
   try {
     const stats = fs.statSync(dirPath);
     if (stats.isDirectory()) {
-      files = fs
+      allFiles = fs
         .readdirSync(dirPath)
-        .filter((f) => isVideoFile(f))
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      videoFiles = allFiles.filter((f) => isVideoFile(f));
     }
   } catch (err) {
     return {
       id: dirPath,
       name,
       files: [],
+      filesAll: [],
       warning: 'Directory not accessible',
       available: false,
       mergeable: false
     };
   }
 
-  const mergeable = files.length >= 2;
+  const mergeable = videoFiles.length >= 2;
   let warning = '';
-  if (files.length === 0) {
+  if (videoFiles.length === 0) {
     warning = 'No video files found';
-  } else if (files.length === 1) {
+  } else if (videoFiles.length === 1) {
     warning = 'Single-file torrent; merge not needed';
   }
 
   return {
     id: dirPath,
     name,
-    files: files.map((f) => path.join(dirPath, f)),
+    files: videoFiles.map((f) => path.join(dirPath, f)),
+    filesAll: allFiles.map((f) => path.join(dirPath, f)),
     available: true,
     mergeable,
     warning: warning || undefined
