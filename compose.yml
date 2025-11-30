@@ -3,9 +3,9 @@ services:
     build: .
     container_name: nodejs-mergerr
     ports:
-      - "3000:3000"
+      - "${WEB_UI_PORT}:3000"
     env_file:
       - stack.env
     volumes:
-      - /data/downloads/torrents:/data/downloads/torrents
+      - ${TORRENTS_DIR}:${TORRENTS_DIR}
     restart: unless-stopped
