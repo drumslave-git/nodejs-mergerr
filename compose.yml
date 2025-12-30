@@ -5,3 +5,7 @@ services:
     volumes:
       - ${TORRENTS_DIR_HOST}:${TORRENTS_DIR}
     restart: unless-stopped
+    ports:
+      - "${WEB_UI_PORT}:3000"
+    env_file:
+      - stack.env

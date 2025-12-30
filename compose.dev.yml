@@ -1,8 +1,12 @@
 services:
   nodejs-mergerr:
+    build: .
+    container_name: nodejs-mergerr
+    restart: unless-stopped
     ports:
       - "${WEB_UI_PORT}:5555"
     volumes:
+      - ${TORRENTS_DIR_HOST}:${TORRENTS_DIR}
       - ./:/app
       - /app/node_modules
     env_file:
