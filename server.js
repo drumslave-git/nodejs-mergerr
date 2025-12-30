@@ -28,13 +28,12 @@ function log(level, message, meta) {
  * avoids the need for third‑party packages such as Express or socket.io.
  */
 
-// Configuration via environment variables.  See README for descriptions.
+// Configuration via environment variables. See README for descriptions.
 const config = {
   qbitHost: process.env.QBIT_HOST || 'localhost',
   qbitPort: parseInt(process.env.QBIT_PORT || '8080', 10),
   qbitUser: process.env.QBIT_USER || '',
-  qbitPassword: process.env.QBIT_PASSWORD || '',
-  qbitCategory: process.env.QBIT_CATEGORY || ''
+  qbitPassword: process.env.QBIT_PASSWORD || ''
 };
 
 // Build the base URL for qBittorrent's Web API.
@@ -50,19 +49,17 @@ const qbitBaseUrl = (() => {
     return `http://${config.qbitHost}:${config.qbitPort}`;
   }
 })();
-// SID cookie for qBittorrent sessions.  Populated after a successful login.
+// SID cookie for qBittorrent sessions. Populated after a successful login.
 let qbitCookie = '';
-let loggedMissingCategory = false;
 
 log('info', 'qBittorrent settings', {
   baseUrl: qbitBaseUrl,
-  category: config.qbitCategory || '(none)',
   hasAuth: Boolean(config.qbitUser)
 });
 
 /**
  * Perform a qBittorrent login using configured credentials and capture the
- * SID cookie.  If the Web UI allows anonymous access this is a no-op.
+ * SID cookie. If the Web UI allows anonymous access this is a no-op.
  */
 async function loginToQbit() {
   if (!config.qbitUser) {
@@ -90,7 +87,7 @@ async function loginToQbit() {
 }
 
 /**
- * Fetch JSON from qBittorrent.  If authentication is enabled and the stored
+ * Fetch JSON from qBittorrent. If authentication is enabled and the stored
  * cookie is missing or rejected, it will attempt a single re-login.
  */
 async function qbitFetchJson(pathname, allowRetry = true) {
@@ -110,85 +107,6 @@ async function qbitFetchJson(pathname, allowRetry = true) {
     throw new Error(`qBittorrent request failed with status ${res.status}`);
   }
   return res.json();
-}
-
-/**
- * Determine the on-disk directory for a torrent entry.  For single-file
- * torrents, use the parent directory; for multi-file torrents use
- * content_path directly.
- */
-function deriveTorrentDirectory(torrent) {
-  const candidate =
-    torrent.content_path ||
-    (torrent.save_path && torrent.name ? path.join(torrent.save_path, torrent.name) : '');
-  if (!candidate) {
-    return null;
-  }
-  const normalized = path.normalize(candidate);
-  return path.resolve(normalized);
-}
-
-/**
- * Query qBittorrent for completed torrents in the configured category and
- * return an array describing their directories. Entries whose payload paths
- * are not present locally are still returned so the UI can show a note.
- */
-async function fetchCompletedTorrentDirectories() {
-  if (!config.qbitCategory) {
-    if (!loggedMissingCategory) {
-      log('warn', 'QBIT_CATEGORY not set; qBittorrent scan skipped');
-      loggedMissingCategory = true;
-    }
-    return null;
-  }
-  try {
-    if (config.qbitUser && !qbitCookie) {
-      await loginToQbit();
-    }
-    const params = new URLSearchParams({
-      category: config.qbitCategory,
-      filter: 'completed'
-    });
-    const pathFragment = `/api/v2/torrents/info?${params.toString()}`;
-    log('info', 'Fetching torrents from qBittorrent', { path: pathFragment });
-    const torrents = await qbitFetchJson(pathFragment);
-    if (!Array.isArray(torrents)) {
-      log('warn', 'Unexpected qBittorrent response shape for torrents');
-      return null;
-    }
-    const directories = [];
-    torrents.forEach((torrent) => {
-      const dirPath = deriveTorrentDirectory(torrent);
-      if (!dirPath) return;
-      let exists = false;
-      let statError = null;
-      try {
-        const stats = fs.statSync(dirPath);
-        exists = stats.isDirectory();
-      } catch (err) {
-        statError = err;
-      }
-      if (!exists && statError) {
-        log('warn', 'Torrent path missing locally', {
-          path: dirPath,
-          error: statError.code || statError.message
-        });
-      }
-      directories.push({
-        dirPath,
-        name: torrent.name || path.basename(dirPath),
-        exists
-      });
-    });
-    log('info', 'qBittorrent completed torrent directories collected', {
-      torrents: torrents.length,
-      directories: directories.length
-    });
-    return directories;
-  } catch (err) {
-    log('error', 'qBittorrent scan failed', { error: err.message || String(err) });
-    return null;
-  }
 }
 
 /**
@@ -258,10 +176,9 @@ function buildTorrentEntry(dirPath, nameOverride, exists = true) {
 }
 
 /**
- * Scan for torrents from qBittorrent.  All completed torrents in the
- * category are shown; merge is enabled only for entries with 2+ video files.
+ * Scan for directories. Merge is enabled only for entries with 2+ video files.
  */
-function scanForTorrents(allowedDirectories) {
+function scanForDirectories(allowedDirectories, sourceLabel) {
   const result = {};
   const usingProvidedDirectories = Array.isArray(allowedDirectories);
   const directoriesToScan = usingProvidedDirectories ? allowedDirectories : [];
@@ -275,7 +192,7 @@ function scanForTorrents(allowedDirectories) {
   });
 
   log('info', 'Scan completed', {
-    source: 'qbitCategory',
+    source: sourceLabel || 'category',
     directories: directoriesToScan.length,
     movies: Object.keys(result).length
   });
@@ -283,8 +200,119 @@ function scanForTorrents(allowedDirectories) {
   return result;
 }
 
-// In‑memory list of detected multi‑part movies.
-let multiPartMovies = {};
+// In-memory list of detected multi-part movies.
+const moviesByCategory = {};
+
+async function fetchQbitCategories() {
+  try {
+    if (config.qbitUser && !qbitCookie) {
+      await loginToQbit();
+    }
+    const categories = await qbitFetchJson('/api/v2/torrents/categories');
+    if (!categories || typeof categories !== 'object') {
+      log('warn', 'Unexpected qBittorrent response shape for categories');
+      return null;
+    }
+    return categories;
+  } catch (err) {
+    log('error', 'qBittorrent categories fetch failed', { error: err.message || String(err) });
+    return null;
+  }
+}
+
+async function getCategories() {
+  const categories = await fetchQbitCategories();
+  if (!categories) return null;
+  return Object.entries(categories).map(([name, details]) => ({
+    id: name,
+    name,
+    path: details && details.savePath ? details.savePath : ''
+  }));
+}
+
+/**
+ * Determine the on-disk directory for a torrent entry. For single-file
+ * torrents, use the parent directory; for multi-file torrents use
+ * content_path directly.
+ */
+function deriveTorrentDirectory(torrent) {
+  const candidate =
+    torrent.content_path ||
+    (torrent.save_path && torrent.name ? path.join(torrent.save_path, torrent.name) : '');
+  if (!candidate) {
+    return null;
+  }
+  const normalized = path.normalize(candidate);
+  return path.resolve(normalized);
+}
+
+async function fetchCompletedTorrentDirectories(categoryId) {
+  const categories = await fetchQbitCategories();
+  if (!categories) {
+    return { directories: null, error: 'qbitUnavailable' };
+  }
+  if (!categories[categoryId]) {
+    return { directories: null, error: 'unknownCategory' };
+  }
+  try {
+    if (config.qbitUser && !qbitCookie) {
+      await loginToQbit();
+    }
+    const params = new URLSearchParams({
+      category: categoryId,
+      filter: 'completed'
+    });
+    const pathFragment = `/api/v2/torrents/info?${params.toString()}`;
+    log('info', 'Fetching torrents from qBittorrent', { path: pathFragment });
+    const torrents = await qbitFetchJson(pathFragment);
+    if (!Array.isArray(torrents)) {
+      log('warn', 'Unexpected qBittorrent response shape for torrents');
+      return { directories: null, error: 'badResponse' };
+    }
+    const directories = [];
+    torrents.forEach((torrent) => {
+      const dirPath = deriveTorrentDirectory(torrent);
+      if (!dirPath) return;
+      let exists = false;
+      let statError = null;
+      try {
+        const stats = fs.statSync(dirPath);
+        exists = stats.isDirectory();
+      } catch (err) {
+        statError = err;
+      }
+      if (!exists && statError) {
+        log('warn', 'Torrent path missing locally', {
+          path: dirPath,
+          error: statError.code || statError.message
+        });
+      }
+      directories.push({
+        dirPath,
+        name: torrent.name || path.basename(dirPath),
+        exists
+      });
+    });
+    log('info', 'qBittorrent completed torrent directories collected', {
+      torrents: torrents.length,
+      directories: directories.length
+    });
+    return { directories, error: null };
+  } catch (err) {
+    log('error', 'qBittorrent scan failed', { error: err.message || String(err) });
+    return { directories: null, error: 'qbitUnavailable' };
+  }
+}
+
+async function scanCategory(categoryId) {
+  const { directories, error } = await fetchCompletedTorrentDirectories(categoryId);
+  if (!directories) {
+    return { movies: null, error };
+  }
+  const scanned = scanForDirectories(directories, categoryId);
+  moviesByCategory[categoryId] = scanned;
+  return { movies: scanned, error: null };
+}
 
 /**
  * List of SSE clients.  Each entry is an object with a `res` property
@@ -317,49 +345,6 @@ function broadcastEvent(event, data) {
 }
 
 /**
- * Refresh the list of multi‑part movies.  If the list has changed
- * since the last scan, broadcast a 'moviesUpdate' event.  This
- * function is called periodically.
- */
-async function refreshMovies() {
-  const directoriesFromQbit = await fetchCompletedTorrentDirectories();
-  const newList = scanForTorrents(directoriesFromQbit);
-  const currentKeys = Object.keys(multiPartMovies);
-  const newKeys = Object.keys(newList);
-  // Check if the sets of keys differ, or if any movie's file list changed.
-  const changed =
-    currentKeys.length !== newKeys.length ||
-    currentKeys.some((key) => {
-      if (!newList[key]) return true;
-      const oldFiles = multiPartMovies[key].files;
-      const newFiles = newList[key].files;
-      if (oldFiles.length !== newFiles.length) return true;
-      for (let i = 0; i < oldFiles.length; i++) {
-        if (oldFiles[i] !== newFiles[i]) return true;
-      }
-      return false;
-    });
-  if (changed) {
-    multiPartMovies = newList;
-    log('info', 'Movies list changed', {
-      previousCount: currentKeys.length,
-      currentCount: newKeys.length
-    });
-    broadcastEvent('moviesUpdate', Object.values(multiPartMovies));
-  }
-}
-
-// Periodically rescan qBittorrent results every 10 seconds.
-refreshMovies().catch((err) => {
-  console.error('Initial refresh failed:', err);
-});
-setInterval(() => {
-  refreshMovies().catch((err) => {
-    console.error('Periodic refresh failed:', err);
-  });
-}, 10000);
-
-/**
  * Merge a multi‑part movie using ffmpeg.  Creates a file list file and
  * runs ffmpeg with the concat demuxer.  Sends real‑time log events
  * tagged with the provided channel via SSE.  On completion, the
@@ -370,7 +355,7 @@ setInterval(() => {
  * @param {string} jobId Directory path used as the job identifier
  * @param {string} channel Base64‑encoded channel identifier for SSE
  */
-function mergeMovie(movie, jobId, channel) {
+function mergeMovie(movie, jobId, channel, categoryId) {
   const dirPath = movie.id;
   const parentName = movie.name;
   const fileListPath = path.join(dirPath, 'concat-list.txt');
@@ -420,10 +405,11 @@ function mergeMovie(movie, jobId, channel) {
       }
     });
     // Remove original parts?  Leave them in place; user may want to delete.
-    // Rescan directory to update list.
-    refreshMovies().catch((err) => {
-      console.error('Refresh failed after merge:', err);
-    });
+    if (categoryId) {
+      scanCategory(categoryId).catch((err) => {
+        console.error('Refresh failed after merge:', err);
+      });
+    }
   });
 }
 
@@ -431,14 +417,51 @@ function mergeMovie(movie, jobId, channel) {
  * Handle incoming HTTP requests.  Serves static files, API endpoints and
  * SSE connections.
  */
-function requestHandler(req, res) {
+async function requestHandler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
-  // API: list movies
-  if (method === 'GET' && url.pathname === '/api/movies') {
+  // API: list categories
+  if (method === 'GET' && url.pathname === '/api/categories') {
+    const categories = await getCategories();
+    if (!categories) {
+      res.statusCode = 502;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'qBittorrent unavailable' }));
+      return;
+    }
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(Object.values(multiPartMovies)));
+    res.end(JSON.stringify({ categories }));
+    return;
+  }
+  // API: list movies for a category
+  if (method === 'GET' && url.pathname === '/api/movies') {
+    const categoryId = url.searchParams.get('category');
+    if (!categoryId) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Missing category' }));
+      return;
+    }
+    const { movies, error } = await scanCategory(categoryId);
+    if (error) {
+      res.statusCode = error === 'qbitUnavailable' || error === 'badResponse' ? 502 : 404;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(
+        JSON.stringify({
+          error:
+            error === 'qbitUnavailable'
+              ? 'qBittorrent unavailable'
+              : error === 'badResponse'
+                ? 'qBittorrent response invalid'
+                : 'Unknown category'
+        })
+      );
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(Object.values(movies)));
     return;
   }
   // SSE endpoint
@@ -453,9 +476,6 @@ function requestHandler(req, res) {
     const client = { res };
     clients.push(client);
     log('info', 'SSE client connected', { clients: clients.length });
-    // Send current movies immediately upon connection
-    res.write(`event: moviesUpdate\n`);
-    res.write(`data: ${JSON.stringify(Object.values(multiPartMovies))}\n\n`);
     req.on('close', () => {
       const idx = clients.indexOf(client);
       if (idx >= 0) clients.splice(idx, 1);
@@ -473,14 +493,23 @@ function requestHandler(req, res) {
       try {
         const data = JSON.parse(body);
         const id = data.id;
-        if (!id || !multiPartMovies[id]) {
+        const categoryId = data.category;
+        if (!categoryId || !id) {
+          log('warn', 'Merge requested without category or id', { id, category: categoryId });
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing category or id' }));
+          return;
+        }
+        const categoryMovies = moviesByCategory[categoryId];
+        if (!categoryMovies || !categoryMovies[id]) {
           log('warn', 'Merge requested with invalid movie id', { id });
           res.statusCode = 400;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: 'Invalid movie id' }));
           return;
         }
-        const movie = multiPartMovies[id];
+        const movie = categoryMovies[id];
         const jobId = id;
         const channel = Buffer.from(jobId).toString('base64');
         if (!movie.available || !movie.mergeable) {
@@ -491,7 +520,7 @@ function requestHandler(req, res) {
           return;
         }
         log('info', 'Starting merge job', { movie: movie.name, dir: jobId });
-        mergeMovie(movie, jobId, channel);
+        mergeMovie(movie, jobId, channel, categoryId);
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ status: 'started', jobId, channel }));
@@ -584,7 +613,16 @@ function serveFile(filePath, res) {
 
 // Create and start the HTTP server.
 const port = process.env.PORT || 3000;
-const server = http.createServer(requestHandler);
+const server = http.createServer((req, res) => {
+  requestHandler(req, res).catch((err) => {
+    console.error('Request handling failed:', err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.end('Internal Server Error');
+    }
+  });
+});
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
+

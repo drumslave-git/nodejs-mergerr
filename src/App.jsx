@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 function App() {
+  const [categories, setCategories] = useState([]);
+  const [currentCategory, setCurrentCategory] = useState('');
+  const [categoryPath, setCategoryPath] = useState('');
   const [movies, setMovies] = useState([]);
+  const [moviesMessage, setMoviesMessage] = useState('Loading categories...');
   const [logText, setLogText] = useState('');
   const [currentChannel, setCurrentChannel] = useState(null);
   const [pendingId, setPendingId] = useState(null);
@@ -14,16 +18,6 @@ function App() {
 
   useEffect(() => {
     const source = new EventSource('/events');
-
-    source.addEventListener('moviesUpdate', (evt) => {
-      try {
-        const payload = JSON.parse(evt.data);
-        setMovies(Array.isArray(payload) ? payload : []);
-      } catch (err) {
-        console.error('Failed to parse movies update', err);
-      }
-    });
-
     source.addEventListener('log', (evt) => {
       try {
         const payload = JSON.parse(evt.data);
@@ -45,10 +39,61 @@ function App() {
   }, []);
 
   useEffect(() => {
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logText]);
+
+  async function loadCategories() {
+    try {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      const list = Array.isArray(data?.categories) ? data.categories : [];
+      setCategories(list);
+      if (list.length === 0) {
+        setCurrentCategory('');
+        setCategoryPath('');
+        setMovies([]);
+        setMoviesMessage('No categories configured.');
+        return;
+      }
+      const initial = list[0].id;
+      setCurrentCategory(initial);
+      setCategoryPath(list[0].path || '');
+      await fetchMovies(initial);
+    } catch (err) {
+      console.error('Failed to load categories', err);
+      setMovies([]);
+      setMoviesMessage('Failed to load categories.');
+    }
+  }
+
+  async function fetchMovies(categoryId) {
+    if (!categoryId) {
+      setMovies([]);
+      setMoviesMessage('Select a category to scan.');
+      return;
+    }
+    setMovies([]);
+    setMoviesMessage('Scanning...');
+    try {
+      const res = await fetch(`/api/movies?category=${encodeURIComponent(categoryId)}`);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setMovies(list);
+      if (list.length === 0) {
+        setMoviesMessage('No multi-part folders found.');
+      }
+    } catch (err) {
+      console.error('Failed to load movies', err);
+      setMovies([]);
+      setMoviesMessage('Failed to load movies.');
+    }
+  }
 
   async function handleMerge(movie) {
     setLogText('');
@@ -58,7 +103,7 @@ function App() {
       const res = await fetch('/api/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: movie.id })
+        body: JSON.stringify({ id: movie.id, category: currentCategory })
       });
       const data = await res.json();
       if (data && data.channel) {
@@ -79,14 +124,39 @@ function App() {
     <div className="container">
       <h1>Multi-part Movie Merger</h1>
       <p>
-        The application monitors a target folder for multi-part movies. A multi-part movie is
-        defined as a directory containing two or more video files. When you press{' '}
+        Select a category to scan for multi-part movies. A multi-part movie is defined as a
+        directory containing two or more video files. When you press{' '}
         <strong>Merge</strong>, the files will be concatenated in order of their file names using
         ffmpeg&apos;s concat demuxer.
       </p>
+      <div className="controls">
+        <label htmlFor="category">Category</label>
+        <select
+          id="category"
+          value={currentCategory}
+          onChange={(event) => {
+            const next = event.target.value;
+            setCurrentCategory(next);
+            const selected = categories.find((category) => category.id === next);
+            setCategoryPath(selected?.path || '');
+            fetchMovies(next);
+          }}
+          disabled={categories.length === 0}
+        >
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={() => fetchMovies(currentCategory)}>
+          Refresh
+        </button>
+        {categoryPath ? <span className="muted">Path: {categoryPath}</span> : null}
+      </div>
       <div id="movies">
         {movies.length === 0 ? (
-          <p>No completed torrents detected.</p>
+          <p>{moviesMessage}</p>
         ) : (
           movies.map((movie) => {
             const allFiles =
