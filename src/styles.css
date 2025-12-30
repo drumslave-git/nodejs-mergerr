@@ -18,18 +18,18 @@ h1 {
   margin-top: 0;
 }
 
-.movie {
+.media-item {
   display: flex;
   flex-direction: column;
   padding: 0.75rem 0;
   border-bottom: 1px solid #eee;
 }
 
-.movie:last-child {
+.media-item:last-child {
   border-bottom: none;
 }
 
-.movie-header {
+.media-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -61,7 +61,7 @@ h1 {
   font-size: 0.9rem;
 }
 
-.movie-title {
+.media-title {
   font-weight: 600;
 }
 

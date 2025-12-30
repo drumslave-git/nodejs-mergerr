@@ -21,7 +21,7 @@ function log(level, message, meta) {
 /*
  * Simple Node.js web server without external dependencies.
  *
- * This server monitors a target directory for multi‑part movies and exposes a
+ * This server monitors a target directory for multi‑part media and exposes a
  * minimal web UI.  It uses Server‑Sent Events (SSE) to push updates to the
  * client: whenever the directory contents change or a merge job produces
  * output, connected browsers receive events in real time.  This approach
@@ -194,14 +194,14 @@ function scanForDirectories(allowedDirectories, sourceLabel) {
   log('info', 'Scan completed', {
     source: sourceLabel || 'category',
     directories: directoriesToScan.length,
-    movies: Object.keys(result).length
+    media: Object.keys(result).length
   });
 
   return result;
 }
 
-// In-memory list of detected multi-part movies.
-const moviesByCategory = {};
+// In-memory list of detected multi-part media items.
+const mediaByCategory = {};
 
 async function fetchQbitCategories() {
   try {
@@ -307,11 +307,11 @@ async function fetchCompletedTorrentDirectories(categoryId) {
 async function scanCategory(categoryId) {
   const { directories, error } = await fetchCompletedTorrentDirectories(categoryId);
   if (!directories) {
-    return { movies: null, error };
+    return { media: null, error };
   }
   const scanned = scanForDirectories(directories, categoryId);
-  moviesByCategory[categoryId] = scanned;
-  return { movies: scanned, error: null };
+  mediaByCategory[categoryId] = scanned;
+  return { media: scanned, error: null };
 }
 
 /**
@@ -332,7 +332,7 @@ const usingDist = staticRoot === distRoot;
  * JSON‑encoded automatically.  Newlines in the data are escaped to
  * preserve SSE framing.
  *
- * @param {string} event Event name (e.g. 'moviesUpdate', 'log')
+ * @param {string} event Event name (e.g. 'mediaUpdate', 'log')
  * @param {string|Object} data Data payload
  */
 function broadcastEvent(event, data) {
@@ -345,29 +345,29 @@ function broadcastEvent(event, data) {
 }
 
 /**
- * Merge a multi‑part movie using ffmpeg.  Creates a file list file and
+ * Merge a multi‑part media item using ffmpeg.  Creates a file list file and
  * runs ffmpeg with the concat demuxer.  Sends real‑time log events
  * tagged with the provided channel via SSE.  On completion, the
- * movies list is refreshed to reflect the disappearance of parts and
+ * media list is refreshed to reflect the disappearance of parts and
  * appearance of the merged output.
  *
- * @param {Object} movie Movie definition
+ * @param {Object} media Media definition
  * @param {string} jobId Directory path used as the job identifier
  * @param {string} channel Base64‑encoded channel identifier for SSE
  */
-function mergeMovie(movie, jobId, channel, categoryId) {
-  const dirPath = movie.id;
-  const parentName = movie.name;
+function mergeMedia(media, jobId, channel, categoryId) {
+  const dirPath = media.id;
+  const parentName = media.name;
   const fileListPath = path.join(dirPath, 'concat-list.txt');
   const outputFileName = `${parentName}.mp4`;
   const outputFilePath = path.join(dirPath, outputFileName);
   log('info', 'Preparing merge', {
-    movie: parentName,
-    parts: movie.files.length,
+    media: parentName,
+    parts: media.files.length,
     output: outputFilePath
   });
   // Compose the file list
-  const listContent = movie.files
+  const listContent = media.files
     .map((filePath) => `file '${filePath.replace(/'/g, "'\\''")}'`)
     .join('\n');
   fs.writeFileSync(fileListPath, listContent, 'utf8');
@@ -434,8 +434,8 @@ async function requestHandler(req, res) {
     res.end(JSON.stringify({ categories }));
     return;
   }
-  // API: list movies for a category
-  if (method === 'GET' && url.pathname === '/api/movies') {
+  // API: list media for a category
+  if (method === 'GET' && url.pathname === '/api/media') {
     const categoryId = url.searchParams.get('category');
     if (!categoryId) {
       res.statusCode = 400;
@@ -443,7 +443,7 @@ async function requestHandler(req, res) {
       res.end(JSON.stringify({ error: 'Missing category' }));
       return;
     }
-    const { movies, error } = await scanCategory(categoryId);
+    const { media, error } = await scanCategory(categoryId);
     if (error) {
       res.statusCode = error === 'qbitUnavailable' || error === 'badResponse' ? 502 : 404;
       res.setHeader('Content-Type', 'application/json');
@@ -461,7 +461,7 @@ async function requestHandler(req, res) {
     }
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(Object.values(movies)));
+    res.end(JSON.stringify(Object.values(media)));
     return;
   }
   // SSE endpoint
@@ -501,26 +501,26 @@ async function requestHandler(req, res) {
           res.end(JSON.stringify({ error: 'Missing category or id' }));
           return;
         }
-        const categoryMovies = moviesByCategory[categoryId];
-        if (!categoryMovies || !categoryMovies[id]) {
-          log('warn', 'Merge requested with invalid movie id', { id });
+        const categoryMedia = mediaByCategory[categoryId];
+        if (!categoryMedia || !categoryMedia[id]) {
+          log('warn', 'Merge requested with invalid media id', { id });
           res.statusCode = 400;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'Invalid movie id' }));
+          res.end(JSON.stringify({ error: 'Invalid media id' }));
           return;
         }
-        const movie = categoryMovies[id];
+        const media = categoryMedia[id];
         const jobId = id;
         const channel = Buffer.from(jobId).toString('base64');
-        if (!movie.available || !movie.mergeable) {
-          log('warn', 'Merge requested for unavailable movie', { id });
+        if (!media.available || !media.mergeable) {
+          log('warn', 'Merge requested for unavailable media', { id });
           res.statusCode = 400;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'Movie not available for merge' }));
+          res.end(JSON.stringify({ error: 'Media not available for merge' }));
           return;
         }
-        log('info', 'Starting merge job', { movie: movie.name, dir: jobId });
-        mergeMovie(movie, jobId, channel, categoryId);
+        log('info', 'Starting merge job', { media: media.name, dir: jobId });
+        mergeMedia(media, jobId, channel, categoryId);
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ status: 'started', jobId, channel }));

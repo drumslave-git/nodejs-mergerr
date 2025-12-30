@@ -4,8 +4,8 @@ function App() {
   const [categories, setCategories] = useState([]);
   const [currentCategory, setCurrentCategory] = useState('');
   const [categoryPath, setCategoryPath] = useState('');
-  const [movies, setMovies] = useState([]);
-  const [moviesMessage, setMoviesMessage] = useState('Loading categories...');
+  const [mediaItems, setMediaItems] = useState([]);
+  const [mediaMessage, setMediaMessage] = useState('Loading categories...');
   const [logText, setLogText] = useState('');
   const [currentChannel, setCurrentChannel] = useState(null);
   const [pendingId, setPendingId] = useState(null);
@@ -57,53 +57,53 @@ function App() {
       if (list.length === 0) {
         setCurrentCategory('');
         setCategoryPath('');
-        setMovies([]);
-        setMoviesMessage('No categories configured.');
+        setMediaItems([]);
+        setMediaMessage('No categories configured.');
         return;
       }
       const initial = list[0].id;
       setCurrentCategory(initial);
       setCategoryPath(list[0].path || '');
-      await fetchMovies(initial);
+      await fetchMedia(initial);
     } catch (err) {
       console.error('Failed to load categories', err);
-      setMovies([]);
-      setMoviesMessage('Failed to load categories.');
+      setMediaItems([]);
+      setMediaMessage('Failed to load categories.');
     }
   }
 
-  async function fetchMovies(categoryId) {
+  async function fetchMedia(categoryId) {
     if (!categoryId) {
-      setMovies([]);
-      setMoviesMessage('Select a category to scan.');
+      setMediaItems([]);
+      setMediaMessage('Select a category to scan.');
       return;
     }
-    setMovies([]);
-    setMoviesMessage('Scanning...');
+    setMediaItems([]);
+    setMediaMessage('Scanning...');
     try {
-      const res = await fetch(`/api/movies?category=${encodeURIComponent(categoryId)}`);
+      const res = await fetch(`/api/media?category=${encodeURIComponent(categoryId)}`);
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
-      setMovies(list);
+      setMediaItems(list);
       if (list.length === 0) {
-        setMoviesMessage('No multi-part folders found.');
+        setMediaMessage('No multi-part folders found.');
       }
     } catch (err) {
-      console.error('Failed to load movies', err);
-      setMovies([]);
-      setMoviesMessage('Failed to load movies.');
+      console.error('Failed to load media', err);
+      setMediaItems([]);
+      setMediaMessage('Failed to load media.');
     }
   }
 
-  async function handleMerge(movie) {
+  async function handleMerge(media) {
     setLogText('');
     setCurrentChannel(null);
-    setPendingId(movie.id);
+    setPendingId(media.id);
     try {
       const res = await fetch('/api/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: movie.id, category: currentCategory })
+        body: JSON.stringify({ id: media.id, category: currentCategory })
       });
       const data = await res.json();
       if (data && data.channel) {
@@ -115,16 +115,16 @@ function App() {
       console.error('Failed to start merge', err);
     } finally {
       setTimeout(() => {
-        setPendingId((current) => (current === movie.id ? null : current));
+        setPendingId((current) => (current === media.id ? null : current));
       }, 5000);
     }
   }
 
   return (
     <div className="container">
-      <h1>Multi-part Movie Merger</h1>
+      <h1>Multi-part Media Merger</h1>
       <p>
-        Select a category to scan for multi-part movies. A multi-part movie is defined as a
+        Select a category to scan for multi-part media. A multi-part media item is defined as a
         directory containing two or more video files. When you press{' '}
         <strong>Merge</strong>, the files will be concatenated in order of their file names using
         ffmpeg&apos;s concat demuxer.
@@ -139,7 +139,7 @@ function App() {
             setCurrentCategory(next);
             const selected = categories.find((category) => category.id === next);
             setCategoryPath(selected?.path || '');
-            fetchMovies(next);
+            fetchMedia(next);
           }}
           disabled={categories.length === 0}
         >
@@ -149,38 +149,38 @@ function App() {
             </option>
           ))}
         </select>
-        <button type="button" onClick={() => fetchMovies(currentCategory)}>
+        <button type="button" onClick={() => fetchMedia(currentCategory)}>
           Refresh
         </button>
         {categoryPath ? <span className="muted">Path: {categoryPath}</span> : null}
       </div>
-      <div id="movies">
-        {movies.length === 0 ? (
-          <p>{moviesMessage}</p>
+      <div id="media">
+        {mediaItems.length === 0 ? (
+          <p>{mediaMessage}</p>
         ) : (
-          movies.map((movie) => {
+          mediaItems.map((media) => {
             const allFiles =
-              movie.filesAll && movie.filesAll.length ? movie.filesAll : movie.files || [];
-            const videoCount = (movie.files && movie.files.length) || 0;
-            const unavailable = movie.available === false || movie.mergeable === false;
-            const isPending = pendingId === movie.id;
+              media.filesAll && media.filesAll.length ? media.filesAll : media.files || [];
+            const videoCount = (media.files && media.files.length) || 0;
+            const unavailable = media.available === false || media.mergeable === false;
+            const isPending = pendingId === media.id;
             const buttonLabel = isPending ? 'Merging...' : unavailable ? 'Not mergeable' : 'Merge';
 
             return (
-              <div className="movie" key={movie.id}>
-                <div className="movie-header">
-                  <span className="movie-title">{movie.name}</span>
+              <div className="media-item" key={media.id}>
+                <div className="media-header">
+                  <span className="media-title">{media.name}</span>
                   <button
                     type="button"
                     disabled={unavailable || isPending}
-                    onClick={() => handleMerge(movie)}
+                    onClick={() => handleMerge(media)}
                   >
                     {buttonLabel}
                   </button>
                 </div>
                 <div className="details">
-                  <div>Path: {movie.id}</div>
-                  <div>Merged file: {movie.name}.mp4</div>
+                  <div>Path: {media.id}</div>
+                  <div>Merged file: {media.name}.mp4</div>
                   <div>
                     Files ({allFiles.length}) - videos: {videoCount}
                   </div>
@@ -191,7 +191,7 @@ function App() {
                       <li>No parts found.</li>
                     )}
                   </ul>
-                  {movie.warning ? <div className="note">{movie.warning}</div> : null}
+                  {media.warning ? <div className="note">{media.warning}</div> : null}
                 </div>
               </div>
             );
