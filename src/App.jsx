@@ -3,10 +3,11 @@ import CategoryControls from './components/CategoryControls.jsx';
 import Tabs from './components/Tabs.jsx';
 import MergePanel from './components/MergePanel.jsx';
 import RemuxPanel from './components/RemuxPanel.jsx';
+import usePersistantState from './hooks/usePersistantState.js';
 
 function App() {
   const [categories, setCategories] = useState([]);
-  const [currentCategory, setCurrentCategory] = useState('');
+  const [currentCategory, setCurrentCategory] = usePersistantState('media-merge-category', '');
   const [categoryPath, setCategoryPath] = useState('');
   const [mediaItems, setMediaItems] = useState([]);
   const [mediaMessage, setMediaMessage] = useState('Loading categories...');
@@ -16,7 +17,7 @@ function App() {
   const [currentChannel, setCurrentChannel] = useState(null);
   const [pendingMergeId, setPendingMergeId] = useState(null);
   const [pendingRemuxId, setPendingRemuxId] = useState(null);
-  const [activeTab, setActiveTab] = useState('merge');
+  const [activeTab, setActiveTab] = usePersistantState('media-merge-tab', 'merge');
   const [expandedRemuxGroups, setExpandedRemuxGroups] = useState(() => new Set());
   const currentChannelRef = useRef(null);
   const logRef = useRef(null);
@@ -70,9 +71,11 @@ function App() {
         setMediaMessage('No categories configured.');
         return;
       }
-      const initial = list[0].id;
+      const hasStored = currentCategory && list.some((category) => category.id === currentCategory);
+      const initial = hasStored ? currentCategory : list[0].id;
       setCurrentCategory(initial);
-      setCategoryPath(list[0].path || '');
+      const selected = list.find((category) => category.id === initial);
+      setCategoryPath(selected?.path || '');
       await fetchMedia(initial);
       await fetchRemux(initial);
     } catch (err) {
