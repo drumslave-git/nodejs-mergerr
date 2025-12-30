@@ -1,30 +1,10 @@
 services:
   nodejs-mergerr:
-    build: .
-    networks:
-      - nodejs-mergerr-network
-    container_name: nodejs-mergerr-server
-    volumes:
-      - ./server.js:/app/server.js
-    env_file:
-      - .env
-    command: ["node", "--watch", "server.js"]
-  nodejs-mergerr-ui:
-    build: .
-    networks:
-      - nodejs-mergerr-network
-    container_name: nodejs-mergerr-ui
     ports:
-      - "5555:5555"
-    env_file:
-      - .env
+      - "${WEB_UI_PORT}:5555"
     volumes:
       - ./:/app
       - /app/node_modules
-    working_dir: /app
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
-    depends_on:
-      - nodejs-mergerr
-
-networks:
-  nodejs-mergerr-network:
+    env_file:
+      - .env
+    command: ["npm", "run", "start"]

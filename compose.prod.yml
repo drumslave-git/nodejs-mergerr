@@ -1,0 +1,6 @@
+services:
+  nodejs-mergerr:
+    ports:
+      - "${WEB_UI_PORT}:3000"
+    env_file:
+      - stack.env

@@ -2,10 +2,6 @@ services:
   nodejs-mergerr:
     build: .
     container_name: nodejs-mergerr
-    ports:
-      - "${WEB_UI_PORT}:3000"
-    env_file:
-      - stack.env
     volumes:
       - ${TORRENTS_DIR_HOST}:${TORRENTS_DIR}
     restart: unless-stopped

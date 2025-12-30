@@ -27,6 +27,7 @@ function remuxMedia({ media, channel, broadcastEvent }) {
       ffmpegArgs.push(`-metadata:s:a:${index}`, `title=${track.label}`);
     }
   });
+  ffmpegArgs.push('-map', '0:a?');
   ffmpegArgs.push('-c', 'copy', outputFilePath);
   const ffmpeg = spawn('ffmpeg', ffmpegArgs);
   log('info', 'ffmpeg started for remux', { args: ffmpegArgs });

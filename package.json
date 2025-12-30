@@ -4,15 +4,16 @@
   "description": "A simple Node.js web app to monitor a folder for multi‑part media and merge them on demand.",
   "main": "server.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server.js",
-    "watch": "node --watch server.js",
-    "docker:up": "docker-compose -f compose.yml up -d",
-    "docker:down": "docker-compose -f compose.yml down",
-    "docker:dev:up": "docker-compose -f compose.yml -f compose.dev.yml up -d",
-    "docker:dev:down": "docker-compose -f compose.yml -f compose.dev.yml down"
+    "app:dev": "vite --host",
+    "app:build": "vite build",
+    "app:preview": "vite preview",
+    "server:start": "node server.js",
+    "server:watch": "node --watch server.js",
+    "start": "concurrently --names server,app \"npm run server:watch\" \"npm run app:dev\"",
+    "docker:up": "docker-compose -f compose.base.yml -f compose.prod.yml up -d",
+    "docker:down": "docker-compose -f compose.base.yml -f compose.prod.yml down",
+    "docker:dev:up": "docker-compose -f compose.base.yml -f compose.dev.yml up -d --build",
+    "docker:dev:down": "docker-compose -f compose.base.yml -f compose.dev.yml down"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
     "vite": "^7.3.0"
   }
 }
