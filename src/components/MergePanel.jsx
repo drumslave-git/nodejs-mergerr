@@ -36,6 +36,9 @@ function MergePanel({ mediaItems, mediaMessage, pendingMergeId, onMerge, logText
                   <div>Path: {media.id}</div>
                   <div>Merged file: {media.name}.mp4</div>
                   <div>
+                    Status: {media.outputExists ? 'Already merged' : 'Not merged yet'}
+                  </div>
+                  <div>
                     Files ({allFiles.length}) - videos: {videoCount}
                   </div>
                   <ul className="file-list">

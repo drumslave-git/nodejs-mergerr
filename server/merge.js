@@ -9,6 +9,9 @@ function mergeMedia({ media, channel, categoryId, broadcastEvent, refreshCategor
   const fileListPath = path.join(dirPath, 'concat-list.txt');
   const outputFileName = `${parentName}.mp4`;
   const outputFilePath = path.join(dirPath, outputFileName);
+  if (fs.existsSync(outputFilePath)) {
+    fs.unlinkSync(outputFilePath);
+  }
   log('info', 'Preparing merge', {
     media: parentName,
     parts: media.files.length,

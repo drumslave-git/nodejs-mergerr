@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { log } = require('./log');
@@ -10,6 +11,9 @@ function remuxMedia({ media, channel, broadcastEvent }) {
       ? media.audioTracks
       : (media.audioFiles || []).map((audioPath) => ({ path: audioPath, label: '' }));
   const outputFilePath = getRemuxOutputPathForJob(videoFilePath);
+  if (outputFilePath && fs.existsSync(outputFilePath)) {
+    fs.unlinkSync(outputFilePath);
+  }
   log('info', 'Preparing remux', {
     media: media.name,
     video: videoFilePath,

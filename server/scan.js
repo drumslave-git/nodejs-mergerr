@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { fetchCompletedTorrentsWithFiles } = require('./qbitClient');
 const { log } = require('./log');
@@ -16,6 +17,9 @@ function buildTorrentEntryFromFiles(torrent, files) {
   const { name, dirPath, topLevel, fileNames } = getFileListEntries(torrent, files);
   const videoFiles = topLevel.filter((entry) => isVideoFile(entry.relativeName));
   const mergeable = videoFiles.length >= 2;
+  const outputPath =
+    dirPath && name ? path.join(dirPath, `${name}.mp4`) : '';
+  const outputExists = outputPath ? fs.existsSync(outputPath) : false;
   let warning = '';
   if (fileNames.length === 0) {
     warning = 'qBittorrent returned no files';
@@ -30,6 +34,8 @@ function buildTorrentEntryFromFiles(torrent, files) {
     name,
     files: videoFiles.map((entry) => entry.fullPath),
     filesAll: topLevel.map((entry) => entry.fullPath),
+    outputPath,
+    outputExists,
     available: true,
     mergeable,
     warning: warning || undefined
@@ -83,6 +89,7 @@ function buildRemuxGroupFromFiles(torrent, files) {
       };
     });
     const outputPath = getRemuxOutputPathPreview(videoEntry.fullPath);
+    const outputExists = outputPath ? fs.existsSync(outputPath) : false;
     let warning = '';
     if (matchingAudio.length === 0) {
       warning = 'No matching external audio tracks found';
@@ -94,6 +101,7 @@ function buildRemuxGroupFromFiles(torrent, files) {
       audioFiles: matchingAudio.map((entry) => entry.fullPath),
       audioTracks,
       outputPath,
+      outputExists,
       available: true,
       remuxable: matchingAudio.length > 0,
       warning: warning || undefined

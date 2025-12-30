@@ -21,6 +21,7 @@ function RemuxPanel({
           remuxItems.map((group) => {
             const items = Array.isArray(group.items) ? group.items : [];
             const remuxableItems = items.filter((item) => item.remuxable);
+            const processedItems = items.filter((item) => item.outputExists);
             const unavailable =
               group.available === false || items.length === 0 || remuxableItems.length === 0;
             const isPending = pendingRemuxId === group.id;
@@ -57,7 +58,8 @@ function RemuxPanel({
                 <div className="details">
                   <div>Path: {group.path || group.id}</div>
                   <div>
-                    Episodes: {items.length} - remuxable: {remuxableItems.length}
+                    Episodes: {items.length} - remuxable: {remuxableItems.length} - processed:{' '}
+                    {processedItems.length}
                   </div>
                   {group.warning ? <div className="note">{group.warning}</div> : null}
                   {items.length && isExpanded ? (
@@ -74,7 +76,12 @@ function RemuxPanel({
                           <div className="remux-episode" key={item.id}>
                             <div className="remux-episode-title">{item.name}</div>
                             <div className="muted">
-                              Audio tracks: {audioCount} - Output: {item.outputPath || 'N/A'}
+                              Audio tracks: {audioCount}
+                              <br />
+                              Output: {item.outputPath || 'N/A'}
+                            </div>
+                            <div className="muted">
+                              Status: {item.outputExists ? 'Already remuxed' : 'Not remuxed yet'}
                             </div>
                             {audioTracks.length ? (
                               <ul className="file-list">
