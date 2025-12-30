@@ -45,6 +45,32 @@ h1 {
   margin: 1rem 0 0.5rem;
 }
 
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab {
+  background-color: #e8e8e8;
+  color: #333;
+}
+
+.tab.active {
+  background-color: #0078d4;
+  color: white;
+}
+
+.tab-panel {
+  margin-top: 0.5rem;
+}
+
+.remux-panel {
+  padding: 0.5rem 0;
+}
+
 .controls label {
   font-weight: 600;
 }
@@ -63,12 +89,41 @@ h1 {
 
 .media-title {
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-button {
+  background: none;
+  color: #0078d4;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.toggle-button:focus {
+  outline: 2px solid #0078d4;
+  outline-offset: 2px;
 }
 
 .details {
   margin-top: 0.5rem;
   font-size: 0.95rem;
   color: #444;
+}
+
+.remux-episodes {
+  margin-top: 0.5rem;
+  border-top: 1px solid #eee;
+  padding-top: 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.remux-episode-title {
+  font-weight: 600;
 }
 
 .note {

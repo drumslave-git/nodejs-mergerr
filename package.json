@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
+    "watch": "node --watch server.js",
     "docker:up": "docker-compose -f compose.yml up -d",
     "docker:down": "docker-compose -f compose.yml down",
     "docker:dev:up": "docker-compose -f compose.yml -f compose.dev.yml up -d",

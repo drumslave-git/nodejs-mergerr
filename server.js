@@ -118,90 +118,220 @@ function isVideoFile(fileName) {
 }
 
 /**
+ * Determine whether a file is an audio track based on its extension.
+ */
+function isAudioFile(fileName) {
+  const audioExtensions = [
+    '.mka',
+    '.aac',
+    '.ac3',
+    '.eac3',
+    '.dts',
+    '.flac',
+    '.mp3',
+    '.ogg',
+    '.opus',
+    '.wav',
+    '.m4a'
+  ];
+  return audioExtensions.includes(path.extname(fileName).toLowerCase());
+}
+
+/**
  * Build a torrent entry description. Always returns an object so UI can
  * show single-file torrents and missing paths.
  */
-function buildTorrentEntry(dirPath, nameOverride, exists = true) {
-  const name = nameOverride || path.basename(dirPath);
-  if (!exists) {
-    return {
-      id: dirPath,
-      name,
-      files: [],
-      filesAll: [],
-      warning: 'Directory not found on server',
-      available: false,
-      mergeable: false
-    };
-  }
-  let allFiles = [];
-  let videoFiles = [];
-  try {
-    const stats = fs.statSync(dirPath);
-    if (stats.isDirectory()) {
-      allFiles = fs
-        .readdirSync(dirPath)
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-      videoFiles = allFiles.filter((f) => isVideoFile(f));
-    }
-  } catch (err) {
-    return {
-      id: dirPath,
-      name,
-      files: [],
-      filesAll: [],
-      warning: 'Directory not accessible',
-      available: false,
-      mergeable: false
-    };
+function detectRootFolder(torrentName, fileNames) {
+  if (!torrentName) return '';
+  const prefix = `${torrentName}/`;
+  const winPrefix = `${torrentName}\\`;
+  return fileNames.some((name) => name.startsWith(prefix) || name.startsWith(winPrefix))
+    ? torrentName
+    : '';
+}
+
+function buildTorrentEntryFromFiles(torrent, files) {
+  const name = torrent.name || torrent.hash || 'Torrent';
+  const fileNames = (files || [])
+    .map((file) => file && file.name)
+    .filter((value) => typeof value === 'string');
+  const rootFolder = detectRootFolder(torrent.name, fileNames);
+  const basePath = torrent.save_path || '';
+  let dirPath = basePath;
+  if (rootFolder && basePath) {
+    dirPath = path.join(basePath, rootFolder);
+  } else if (!dirPath && torrent.content_path) {
+    dirPath = path.dirname(torrent.content_path);
   }
 
+  const prefix = rootFolder ? `${rootFolder}/` : '';
+  const winPrefix = rootFolder ? `${rootFolder}\\` : '';
+  const topLevel = fileNames
+    .map((fullName) => {
+      let relativeName = fullName;
+      if (rootFolder && fullName.startsWith(prefix)) {
+        relativeName = fullName.slice(prefix.length);
+      } else if (rootFolder && fullName.startsWith(winPrefix)) {
+        relativeName = fullName.slice(winPrefix.length);
+      }
+      if (relativeName.includes('/') || relativeName.includes('\\')) {
+        return null;
+      }
+      const fullPath = basePath ? path.join(basePath, fullName) : fullName;
+      return { relativeName, fullPath };
+    })
+    .filter(Boolean);
+
+  const videoFiles = topLevel.filter((entry) => isVideoFile(entry.relativeName));
   const mergeable = videoFiles.length >= 2;
   let warning = '';
-  if (videoFiles.length === 0) {
+  if (fileNames.length === 0) {
+    warning = 'qBittorrent returned no files';
+  } else if (videoFiles.length === 0) {
     warning = 'No video files found';
   } else if (videoFiles.length === 1) {
     warning = 'Single-file torrent; merge not needed';
   }
 
   return {
-    id: dirPath,
+    id: dirPath || torrent.content_path || torrent.save_path || torrent.hash,
     name,
-    files: videoFiles.map((f) => path.join(dirPath, f)),
-    filesAll: allFiles.map((f) => path.join(dirPath, f)),
+    files: videoFiles.map((entry) => entry.fullPath),
+    filesAll: topLevel.map((entry) => entry.fullPath),
     available: true,
     mergeable,
     warning: warning || undefined
   };
 }
 
-/**
- * Scan for directories. Merge is enabled only for entries with 2+ video files.
- */
-function scanForDirectories(allowedDirectories, sourceLabel) {
-  const result = {};
-  const usingProvidedDirectories = Array.isArray(allowedDirectories);
-  const directoriesToScan = usingProvidedDirectories ? allowedDirectories : [];
+function getRemuxOutputPathPreview(videoFilePath) {
+  const dirPath = path.dirname(videoFilePath);
+  const ext = path.extname(videoFilePath);
+  const baseName = path.basename(videoFilePath, ext);
+  if (ext.toLowerCase() === '.mkv') {
+    return path.join(dirPath, `${baseName}.remux.mkv`);
+  }
+  return path.join(dirPath, `${baseName}.mkv`);
+}
 
-  directoriesToScan.forEach((entry) => {
-    const dirPath = entry.dirPath || entry;
-    const displayName = entry.name || path.basename(dirPath);
-    const exists = entry.exists !== false;
-    const torrentEntry = buildTorrentEntry(dirPath, displayName, exists);
-    result[torrentEntry.id] = torrentEntry;
+function getRemuxOutputPathForJob(videoFilePath) {
+  const preferred = getRemuxOutputPathPreview(videoFilePath);
+  if (!fs.existsSync(preferred)) {
+    return preferred;
+  }
+  const dirPath = path.dirname(preferred);
+  const baseName = path.basename(preferred, '.mkv');
+  let counter = 1;
+  let fallback = path.join(dirPath, `${baseName}-${counter}.mkv`);
+  while (fs.existsSync(fallback)) {
+    counter += 1;
+    fallback = path.join(dirPath, `${baseName}-${counter}.mkv`);
+  }
+  return fallback;
+}
+
+function getFileListEntries(torrent, files) {
+  const name = torrent.name || torrent.hash || 'Torrent';
+  const fileNames = (files || [])
+    .map((file) => file && file.name)
+    .filter((value) => typeof value === 'string');
+  const rootFolder = detectRootFolder(torrent.name, fileNames);
+  const basePath = torrent.save_path || '';
+  let dirPath = basePath;
+  if (rootFolder && basePath) {
+    dirPath = path.join(basePath, rootFolder);
+  } else if (!dirPath && torrent.content_path) {
+    dirPath = path.dirname(torrent.content_path);
+  }
+
+  const prefix = rootFolder ? `${rootFolder}/` : '';
+  const winPrefix = rootFolder ? `${rootFolder}\\` : '';
+  const topLevel = fileNames
+    .map((fullName) => {
+      let relativeName = fullName;
+      if (rootFolder && fullName.startsWith(prefix)) {
+        relativeName = fullName.slice(prefix.length);
+      } else if (rootFolder && fullName.startsWith(winPrefix)) {
+        relativeName = fullName.slice(winPrefix.length);
+      }
+      if (relativeName.includes('/') || relativeName.includes('\\')) {
+        return null;
+      }
+      const fullPath = basePath ? path.join(basePath, fullName) : fullName;
+      return { relativeName, fullPath };
+    })
+    .filter(Boolean);
+  const allEntries = fileNames.map((fullName) => ({
+    relativeName: fullName,
+    fullPath: basePath ? path.join(basePath, fullName) : fullName
+  }));
+
+  return {
+    name,
+    basePath,
+    dirPath,
+    topLevel,
+    allEntries
+  };
+}
+
+function normalizeStem(fileName) {
+  const base = path.basename(fileName, path.extname(fileName));
+  return base.toLowerCase();
+}
+
+function buildRemuxGroupFromFiles(torrent, files) {
+  const { name, dirPath, topLevel, allEntries } = getFileListEntries(torrent, files);
+  const videoFiles = topLevel.filter((entry) => isVideoFile(entry.relativeName));
+  const audioFiles = allEntries.filter((entry) => isAudioFile(entry.relativeName));
+  const groupId = torrent.hash || dirPath || torrent.content_path || torrent.save_path;
+
+  if (videoFiles.length === 0) {
+    return {
+      id: groupId,
+      name,
+      path: dirPath || torrent.save_path || '',
+      items: [],
+      available: true,
+      warning: 'No video file found'
+    };
+  }
+
+  const items = videoFiles.map((videoEntry) => {
+    const videoStem = normalizeStem(videoEntry.relativeName);
+    const matchingAudio = audioFiles.filter((audioEntry) => {
+      const audioStem = normalizeStem(audioEntry.relativeName);
+      return audioStem.startsWith(videoStem);
+    });
+    const outputPath = getRemuxOutputPathPreview(videoEntry.fullPath);
+    let warning = '';
+    if (matchingAudio.length === 0) {
+      warning = 'No matching external audio tracks found';
+    }
+    return {
+      id: videoEntry.fullPath,
+      name: path.basename(videoEntry.relativeName),
+      videoFile: videoEntry.fullPath,
+      audioFiles: matchingAudio.map((entry) => entry.fullPath),
+      outputPath,
+      available: true,
+      remuxable: matchingAudio.length > 0,
+      warning: warning || undefined
+    };
   });
 
-  log('info', 'Scan completed', {
-    source: sourceLabel || 'category',
-    directories: directoriesToScan.length,
-    media: Object.keys(result).length
-  });
-
-  return result;
+  return {
+    id: groupId,
+    name,
+    path: dirPath || torrent.save_path || '',
+    items,
+    available: true
+  };
 }
 
 // In-memory list of detected multi-part media items.
 const mediaByCategory = {};
+const remuxByCategory = {};
 
 async function fetchQbitCategories() {
   try {
@@ -230,29 +360,13 @@ async function getCategories() {
   }));
 }
 
-/**
- * Determine the on-disk directory for a torrent entry. For single-file
- * torrents, use the parent directory; for multi-file torrents use
- * content_path directly.
- */
-function deriveTorrentDirectory(torrent) {
-  const candidate =
-    torrent.content_path ||
-    (torrent.save_path && torrent.name ? path.join(torrent.save_path, torrent.name) : '');
-  if (!candidate) {
-    return null;
-  }
-  const normalized = path.normalize(candidate);
-  return path.resolve(normalized);
-}
-
-async function fetchCompletedTorrentDirectories(categoryId) {
+async function fetchCompletedTorrentsWithFiles(categoryId) {
   const categories = await fetchQbitCategories();
   if (!categories) {
-    return { directories: null, error: 'qbitUnavailable' };
+    return { torrents: null, error: 'qbitUnavailable' };
   }
   if (!categories[categoryId]) {
-    return { directories: null, error: 'unknownCategory' };
+    return { torrents: null, error: 'unknownCategory' };
   }
   try {
     if (config.qbitUser && !qbitCookie) {
@@ -267,51 +381,64 @@ async function fetchCompletedTorrentDirectories(categoryId) {
     const torrents = await qbitFetchJson(pathFragment);
     if (!Array.isArray(torrents)) {
       log('warn', 'Unexpected qBittorrent response shape for torrents');
-      return { directories: null, error: 'badResponse' };
+      return { torrents: null, error: 'badResponse' };
     }
-    const directories = [];
-    torrents.forEach((torrent) => {
-      const dirPath = deriveTorrentDirectory(torrent);
-      if (!dirPath) return;
-      let exists = false;
-      let statError = null;
+    const enriched = [];
+    for (const torrent of torrents) {
+      if (!torrent || !torrent.hash) continue;
+      let files = [];
       try {
-        const stats = fs.statSync(dirPath);
-        exists = stats.isDirectory();
+        files = await qbitFetchJson(`/api/v2/torrents/files?hash=${torrent.hash}`);
       } catch (err) {
-        statError = err;
-      }
-      if (!exists && statError) {
-        log('warn', 'Torrent path missing locally', {
-          path: dirPath,
-          error: statError.code || statError.message
+        log('warn', 'qBittorrent file list fetch failed', {
+          hash: torrent.hash,
+          error: err.message || String(err)
         });
       }
-      directories.push({
-        dirPath,
-        name: torrent.name || path.basename(dirPath),
-        exists
-      });
-    });
-    log('info', 'qBittorrent completed torrent directories collected', {
+      enriched.push({ torrent, files: Array.isArray(files) ? files : [] });
+    }
+    log('info', 'qBittorrent completed torrent files collected', {
       torrents: torrents.length,
-      directories: directories.length
+      entries: enriched.length
     });
-    return { directories, error: null };
+    return { torrents: enriched, error: null };
   } catch (err) {
     log('error', 'qBittorrent scan failed', { error: err.message || String(err) });
-    return { directories: null, error: 'qbitUnavailable' };
+    return { torrents: null, error: 'qbitUnavailable' };
   }
 }
 
 async function scanCategory(categoryId) {
-  const { directories, error } = await fetchCompletedTorrentDirectories(categoryId);
-  if (!directories) {
+  const { torrents, error } = await fetchCompletedTorrentsWithFiles(categoryId);
+  if (!torrents) {
     return { media: null, error };
   }
-  const scanned = scanForDirectories(directories, categoryId);
+  const scanned = {};
+  torrents.forEach(({ torrent, files }) => {
+    const entry = buildTorrentEntryFromFiles(torrent, files);
+    scanned[entry.id] = entry;
+  });
   mediaByCategory[categoryId] = scanned;
   return { media: scanned, error: null };
+}
+
+async function scanRemuxCategory(categoryId) {
+  const { torrents, error } = await fetchCompletedTorrentsWithFiles(categoryId);
+  if (!torrents) {
+    return { media: null, error };
+  }
+  const result = {};
+  torrents.forEach(({ torrent, files }) => {
+    const remuxGroup = buildRemuxGroupFromFiles(torrent, files);
+    result[remuxGroup.id] = remuxGroup;
+  });
+  log('info', 'Remux scan completed', {
+    source: categoryId || 'category',
+    directories: torrents.length,
+    media: Object.keys(result).length
+  });
+  remuxByCategory[categoryId] = result;
+  return { media: result, error: null };
 }
 
 /**
@@ -414,6 +541,70 @@ function mergeMedia(media, jobId, channel, categoryId) {
 }
 
 /**
+ * Remux a video with external audio tracks into a single MKV file.
+ */
+function remuxMedia(media, channel) {
+  const videoFilePath = media.videoFile;
+  const audioFiles = media.audioFiles || [];
+  const outputFilePath = getRemuxOutputPathForJob(videoFilePath);
+  log('info', 'Preparing remux', {
+    media: media.name,
+    video: videoFilePath,
+    audioTracks: audioFiles.length,
+    output: outputFilePath
+  });
+  const ffmpegArgs = ['-i', videoFilePath];
+  audioFiles.forEach((audioPath) => {
+    ffmpegArgs.push('-i', audioPath);
+  });
+  ffmpegArgs.push('-map', '0:v:0');
+  audioFiles.forEach((_, index) => {
+    ffmpegArgs.push('-map', `${index + 1}:a:0`);
+  });
+  ffmpegArgs.push('-c', 'copy', outputFilePath);
+  const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+  log('info', 'ffmpeg started for remux', { args: ffmpegArgs });
+  return new Promise((resolve) => {
+    function sendLog(message) {
+      broadcastEvent('log', { channel, message });
+    }
+    ffmpeg.stdout.on('data', (data) => {
+      sendLog(data.toString());
+    });
+    ffmpeg.stderr.on('data', (data) => {
+      sendLog(data.toString());
+    });
+    ffmpeg.on('close', (code) => {
+      const message = code === 0 ? 'Remux completed' : `ffmpeg exited with code ${code}`;
+      sendLog(`\n${message}\n`);
+      log(code === 0 ? 'info' : 'error', 'ffmpeg remux process finished', { code });
+      resolve(code);
+    });
+  });
+}
+
+async function remuxGroup(group, channel, categoryId) {
+  const items = Array.isArray(group.items) ? group.items : [];
+  const remuxTargets = items.filter((item) => item.remuxable);
+  let completed = 0;
+  for (const item of remuxTargets) {
+    completed += 1;
+    broadcastEvent('log', {
+      channel,
+      message: `\n[${completed}/${remuxTargets.length}] Remuxing ${path.basename(item.videoFile)}\n`
+    });
+    // eslint-disable-next-line no-await-in-loop
+    await remuxMedia(item, channel);
+  }
+  broadcastEvent('log', { channel, message: '\nBatch remux completed\n' });
+  if (categoryId) {
+    scanRemuxCategory(categoryId).catch((err) => {
+      console.error('Refresh failed after remux:', err);
+    });
+  }
+}
+
+/**
  * Handle incoming HTTP requests.  Serves static files, API endpoints and
  * SSE connections.
  */
@@ -444,6 +635,36 @@ async function requestHandler(req, res) {
       return;
     }
     const { media, error } = await scanCategory(categoryId);
+    if (error) {
+      res.statusCode = error === 'qbitUnavailable' || error === 'badResponse' ? 502 : 404;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(
+        JSON.stringify({
+          error:
+            error === 'qbitUnavailable'
+              ? 'qBittorrent unavailable'
+              : error === 'badResponse'
+                ? 'qBittorrent response invalid'
+                : 'Unknown category'
+        })
+      );
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(Object.values(media)));
+    return;
+  }
+  // API: list remux candidates for a category
+  if (method === 'GET' && url.pathname === '/api/remux') {
+    const categoryId = url.searchParams.get('category');
+    if (!categoryId) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Missing category' }));
+      return;
+    }
+    const { media, error } = await scanRemuxCategory(categoryId);
     if (error) {
       res.statusCode = error === 'qbitUnavailable' || error === 'badResponse' ? 502 : 404;
       res.setHeader('Content-Type', 'application/json');
@@ -521,6 +742,97 @@ async function requestHandler(req, res) {
         }
         log('info', 'Starting merge job', { media: media.name, dir: jobId });
         mergeMedia(media, jobId, channel, categoryId);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ status: 'started', jobId, channel }));
+      } catch (e) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+  // API: initiate remux
+  if (method === 'POST' && url.pathname === '/api/remux') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const id = data.id;
+        const categoryId = data.category;
+        const mode = data.mode || 'single';
+        if (!categoryId || !id) {
+          log('warn', 'Remux requested without category or id', { id, category: categoryId });
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing category or id' }));
+          return;
+        }
+        const categoryMedia = remuxByCategory[categoryId];
+        if (!categoryMedia) {
+          log('warn', 'Remux requested with invalid media id', { id });
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Invalid media id' }));
+          return;
+        }
+        const group = categoryMedia[id];
+        if (group && mode === 'all') {
+          const remuxable = Array.isArray(group.items)
+            ? group.items.filter((item) => item.remuxable)
+            : [];
+          if (!group.available || remuxable.length === 0) {
+            log('warn', 'Batch remux requested for unavailable media', { id });
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Media not available for remux' }));
+            return;
+          }
+          const jobId = id;
+          const channel = Buffer.from(`remux-group:${jobId}`).toString('base64');
+          log('info', 'Starting batch remux job', { media: group.name, dir: jobId });
+          remuxGroup(group, channel, categoryId);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ status: 'started', jobId, channel }));
+          return;
+        }
+        let media = null;
+        Object.values(categoryMedia).some((candidate) => {
+          if (!candidate.items) return false;
+          const match = candidate.items.find((item) => item.id === id);
+          if (match) {
+            media = match;
+            return true;
+          }
+          return false;
+        });
+        if (!media) {
+          log('warn', 'Remux requested with invalid media id', { id });
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Invalid media id' }));
+          return;
+        }
+        if (!media.available || !media.remuxable) {
+          log('warn', 'Remux requested for unavailable media', { id });
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Media not available for remux' }));
+          return;
+        }
+        const jobId = id;
+        const channel = Buffer.from(`remux:${jobId}`).toString('base64');
+        log('info', 'Starting remux job', { media: media.name, dir: jobId });
+        remuxMedia(media, channel).then(() => {
+          scanRemuxCategory(categoryId).catch((err) => {
+            console.error('Refresh failed after remux:', err);
+          });
+        });
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ status: 'started', jobId, channel }));
