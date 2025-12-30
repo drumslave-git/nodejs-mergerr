@@ -1,0 +1,91 @@
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f5f5f5;
+}
+
+.container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 1rem 2rem;
+  background-color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+h1 {
+  margin-top: 0;
+}
+
+.movie {
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.movie:last-child {
+  border-bottom: none;
+}
+
+.movie-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.movie-title {
+  font-weight: 600;
+}
+
+.details {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: #444;
+}
+
+.note {
+  color: #c0392b;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+  background-color: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-list {
+  margin: 0.25rem 0 0.5rem 1.25rem;
+  padding-left: 0;
+}
+
+.file-list li {
+  margin: 0.1rem 0;
+  list-style: disc;
+  word-break: break-all;
+}
+
+.log {
+  background-color: #111;
+  color: #0f0;
+  height: 200px;
+  overflow-y: auto;
+  padding: 1rem;
+  font-family: "Consolas", "Courier New", monospace;
+  white-space: pre-wrap;
+  border-radius: 4px;
+}

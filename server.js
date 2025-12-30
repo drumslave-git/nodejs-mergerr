@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const dotenv = require('dotenv');
+dotenv.config();
 
 function log(level, message, meta) {
   const ts = new Date().toISOString();
@@ -292,6 +294,10 @@ let multiPartMovies = {};
  */
 const clients = [];
 
+const distRoot = path.join(__dirname, 'dist');
+const staticRoot = fs.existsSync(distRoot) ? distRoot : path.join(__dirname, 'public');
+const usingDist = staticRoot === distRoot;
+
 /**
  * Broadcast a server‑sent event to all connected clients.  Pass an
  * event name and a data payload (string or object).  Objects will be
@@ -428,15 +434,6 @@ function mergeMovie(movie, jobId, channel) {
 function requestHandler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
-  if (url.pathname === '/') {
-    return serveFile('index.html', 'text/html', res);
-  }
-  if (method === 'GET' && url.pathname === '/style.css') {
-    return serveFile('style.css', 'text/css', res);
-  }
-  if (method === 'GET' && url.pathname === '/script.js') {
-    return serveFile('script.js', 'application/javascript', res);
-  }
   // API: list movies
   if (method === 'GET' && url.pathname === '/api/movies') {
     res.statusCode = 200;
@@ -506,18 +503,73 @@ function requestHandler(req, res) {
     });
     return;
   }
+  if (method === 'GET') {
+    return serveStatic(url.pathname, res);
+  }
   // 404 fallback
   res.statusCode = 404;
   res.end('Not found');
 }
 
 /**
- * Serve a file from the public directory.  Reads the file asynchronously
- * and sends it with the appropriate content type.  On error, returns
- * 500.
+ * Resolve a safe file path under the static root for the given URL path.
  */
-function serveFile(fileName, contentType, res) {
-  const filePath = path.join(__dirname, 'public', fileName);
+function resolveStaticPath(urlPath) {
+  const safePath = decodeURIComponent(urlPath || '/');
+  const normalizedPath = safePath === '/' ? '/index.html' : safePath;
+  const fullPath = path.resolve(staticRoot, `.${normalizedPath}`);
+  const relative = path.relative(staticRoot, fullPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return fullPath;
+}
+
+function getContentType(filePath) {
+  const contentTypes = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.ico': 'image/x-icon',
+    '.map': 'application/json; charset=utf-8',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2'
+  };
+  return contentTypes[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+}
+
+function serveStatic(urlPath, res) {
+  const filePath = resolveStaticPath(urlPath);
+  if (!filePath) {
+    res.statusCode = 400;
+    res.end('Bad request');
+    return;
+  }
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      if (usingDist) {
+        const indexPath = path.join(staticRoot, 'index.html');
+        return serveFile(indexPath, res);
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+    return serveFile(filePath, res);
+  });
+}
+
+/**
+ * Serve a file from the static directory. Reads the file asynchronously
+ * and sends it with the appropriate content type. On error, returns 500.
+ */
+function serveFile(filePath, res) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.statusCode = 500;
@@ -525,7 +577,7 @@ function serveFile(fileName, contentType, res) {
       return;
     }
     res.statusCode = 200;
-    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Type', getContentType(filePath));
     res.end(data);
   });
 }

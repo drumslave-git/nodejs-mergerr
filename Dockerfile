@@ -1,4 +1,4 @@
-FROM node:18-slim
+FROM node:24-slim
 
 # Install ffmpeg for video concatenation.  The `ffmpeg` binary is
 # required for merging video files as described in the concat demuxer
@@ -9,7 +9,11 @@ RUN apt-get update \
 
 WORKDIR /app
 
+COPY package.json package-lock.json ./
+RUN npm ci
+
 COPY . .
+RUN npm run build
 
 EXPOSE 3000
 
