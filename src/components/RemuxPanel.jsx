@@ -64,12 +64,28 @@ function RemuxPanel({
                     <div className="remux-episodes" id={`remux-group-${group.id}`}>
                       {items.map((item) => {
                         const audioCount = (item.audioFiles && item.audioFiles.length) || 0;
+                        const audioTracks = Array.isArray(item.audioTracks)
+                          ? item.audioTracks
+                          : (item.audioFiles || []).map((filePath) => ({
+                              path: filePath,
+                              label: ''
+                            }));
                         return (
                           <div className="remux-episode" key={item.id}>
                             <div className="remux-episode-title">{item.name}</div>
                             <div className="muted">
                               Audio tracks: {audioCount} - Output: {item.outputPath || 'N/A'}
                             </div>
+                            {audioTracks.length ? (
+                              <ul className="file-list">
+                                {audioTracks.map((track) => (
+                                  <li key={track.path}>
+                                    {track.label ? `${track.label} - ` : ''}
+                                    {track.path}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
                             {item.warning ? <div className="note">{item.warning}</div> : null}
                           </div>
                         );

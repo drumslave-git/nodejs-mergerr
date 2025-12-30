@@ -59,6 +59,29 @@ function buildRemuxGroupFromFiles(torrent, files) {
       const audioStem = normalizeStem(audioEntry.relativeName);
       return audioStem.startsWith(videoStem);
     });
+    const audioTracks = matchingAudio.map((audioEntry) => {
+      const videoBase = path.basename(
+        videoEntry.relativeName,
+        path.extname(videoEntry.relativeName)
+      );
+      const audioBase = path.basename(
+        audioEntry.relativeName,
+        path.extname(audioEntry.relativeName)
+      );
+      let label = audioBase;
+      if (audioBase.toLowerCase().startsWith(videoBase.toLowerCase())) {
+        label = audioBase.slice(videoBase.length);
+        label = label.replace(/^[._\-\s]+/, '');
+      }
+      label = label.replace(/[._\-]+/g, ' ').trim();
+      if (!label) {
+        label = audioBase;
+      }
+      return {
+        path: audioEntry.fullPath,
+        label
+      };
+    });
     const outputPath = getRemuxOutputPathPreview(videoEntry.fullPath);
     let warning = '';
     if (matchingAudio.length === 0) {
@@ -69,6 +92,7 @@ function buildRemuxGroupFromFiles(torrent, files) {
       name: path.basename(videoEntry.relativeName),
       videoFile: videoEntry.fullPath,
       audioFiles: matchingAudio.map((entry) => entry.fullPath),
+      audioTracks,
       outputPath,
       available: true,
       remuxable: matchingAudio.length > 0,

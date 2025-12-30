@@ -5,21 +5,27 @@ const { getRemuxOutputPathForJob } = require('./fileUtils');
 
 function remuxMedia({ media, channel, broadcastEvent }) {
   const videoFilePath = media.videoFile;
-  const audioFiles = media.audioFiles || [];
+  const audioTracks =
+    Array.isArray(media.audioTracks) && media.audioTracks.length
+      ? media.audioTracks
+      : (media.audioFiles || []).map((audioPath) => ({ path: audioPath, label: '' }));
   const outputFilePath = getRemuxOutputPathForJob(videoFilePath);
   log('info', 'Preparing remux', {
     media: media.name,
     video: videoFilePath,
-    audioTracks: audioFiles.length,
+    audioTracks: audioTracks.length,
     output: outputFilePath
   });
   const ffmpegArgs = ['-i', videoFilePath];
-  audioFiles.forEach((audioPath) => {
-    ffmpegArgs.push('-i', audioPath);
+  audioTracks.forEach((track) => {
+    ffmpegArgs.push('-i', track.path);
   });
   ffmpegArgs.push('-map', '0:v:0');
-  audioFiles.forEach((_, index) => {
+  audioTracks.forEach((track, index) => {
     ffmpegArgs.push('-map', `${index + 1}:a:0`);
+    if (track.label) {
+      ffmpegArgs.push(`-metadata:s:a:${index}`, `title=${track.label}`);
+    }
   });
   ffmpegArgs.push('-c', 'copy', outputFilePath);
   const ffmpeg = spawn('ffmpeg', ffmpegArgs);
