@@ -54,21 +54,42 @@ function remuxMedia({ media, channel, broadcastEvent }) {
   });
 }
 
-async function remuxGroup({ group, channel, categoryId, broadcastEvent, refreshCategory }) {
+async function remuxGroup({ group, channel, categoryId, threads, broadcastEvent, refreshCategory }) {
   const items = Array.isArray(group.items) ? group.items : [];
   const remuxTargets = items.filter((item) => item.remuxable);
+  const maxThreads = Math.max(1, Math.min(threads || 4, remuxTargets.length || 1));
   let completed = 0;
-  for (const item of remuxTargets) {
-    completed += 1;
-    broadcastEvent('log', {
-      channel,
-      message: `\n[${completed}/${remuxTargets.length}] Remuxing ${path.basename(
-        item.videoFile
-      )}\n`
-    });
-    // eslint-disable-next-line no-await-in-loop
-    await remuxMedia({ media: item, channel, broadcastEvent });
-  }
+  let active = 0;
+  let index = 0;
+
+  await new Promise((resolve) => {
+    const scheduleNext = () => {
+      while (active < maxThreads && index < remuxTargets.length) {
+        const item = remuxTargets[index];
+        index += 1;
+        active += 1;
+        broadcastEvent('log', {
+          channel,
+          message: `\n[${completed + 1}/${remuxTargets.length}] Remuxing ${path.basename(
+            item.videoFile
+          )}\n`
+        });
+        remuxMedia({ media: item, channel, broadcastEvent }).then(() => {
+          completed += 1;
+          active -= 1;
+          if (completed >= remuxTargets.length) {
+            resolve();
+            return;
+          }
+          scheduleNext();
+        });
+      }
+      if (remuxTargets.length === 0) {
+        resolve();
+      }
+    };
+    scheduleNext();
+  });
   broadcastEvent('log', { channel, message: '\nBatch remux completed\n' });
   if (categoryId && refreshCategory) {
     refreshCategory(categoryId).catch((err) => {

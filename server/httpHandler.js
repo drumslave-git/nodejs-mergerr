@@ -149,6 +149,9 @@ async function requestHandler(req, res) {
         const id = data.id;
         const categoryId = data.category;
         const mode = data.mode || 'single';
+        const threads = Number.isFinite(data.threads)
+          ? Math.max(1, Math.min(data.threads, 16))
+          : 4;
         if (!categoryId || !id) {
           log('warn', 'Remux requested without category or id', { id, category: categoryId });
           res.statusCode = 400;
@@ -183,6 +186,7 @@ async function requestHandler(req, res) {
             group,
             channel,
             categoryId,
+            threads,
             broadcastEvent,
             refreshCategory: scanRemuxCategory
           });

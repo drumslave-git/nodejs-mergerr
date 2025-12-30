@@ -1,6 +1,14 @@
 import React from 'react';
 
-function MergePanel({ mediaItems, mediaMessage, pendingMergeId, onMerge, logText, logRef }) {
+function MergePanel({
+  mediaItems,
+  mediaMessage,
+  pendingMergeId,
+  isMergeRunning,
+  onMerge,
+  logText,
+  logRef
+}) {
   return (
     <>
       <p>
@@ -16,7 +24,8 @@ function MergePanel({ mediaItems, mediaMessage, pendingMergeId, onMerge, logText
             const allFiles =
               media.filesAll && media.filesAll.length ? media.filesAll : media.files || [];
             const videoCount = (media.files && media.files.length) || 0;
-            const unavailable = media.available === false || media.mergeable === false;
+            const unavailable =
+              media.available === false || media.mergeable === false || isMergeRunning;
             const isPending = pendingMergeId === media.id;
             const buttonLabel = isPending ? 'Merging...' : unavailable ? 'Not mergeable' : 'Merge';
 

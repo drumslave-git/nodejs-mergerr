@@ -18,6 +18,7 @@ function App() {
   const [pendingMergeId, setPendingMergeId] = useState(null);
   const [pendingRemuxId, setPendingRemuxId] = useState(null);
   const [activeTab, setActiveTab] = usePersistantState('media-merge-tab', 'merge');
+  const [remuxThreads, setRemuxThreads] = usePersistantState('media-merge-remux-threads', 4);
   const [expandedRemuxGroups, setExpandedRemuxGroups] = useState(() => new Set());
   const currentChannelRef = useRef(null);
   const logRef = useRef(null);
@@ -159,6 +160,13 @@ function App() {
   }
 
   async function handleRemuxAll(group) {
+    const requested = window.prompt('Remux threads (1-16):', String(remuxThreads));
+    if (requested === null) {
+      return;
+    }
+    const parsed = parseInt(requested, 10);
+    const normalized = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 16) : remuxThreads;
+    setRemuxThreads(normalized);
     setLogText('');
     setCurrentChannel(null);
     setPendingRemuxId(group.id);
@@ -166,7 +174,12 @@ function App() {
       const res = await fetch('/api/remux', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: group.id, category: currentCategory, mode: 'all' })
+        body: JSON.stringify({
+          id: group.id,
+          category: currentCategory,
+          mode: 'all',
+          threads: normalized
+        })
       });
       const data = await res.json();
       if (data && data.channel) {
@@ -221,6 +234,7 @@ function App() {
             mediaItems={mediaItems}
             mediaMessage={mediaMessage}
             pendingMergeId={pendingMergeId}
+            isMergeRunning={Boolean(pendingMergeId)}
             onMerge={handleMerge}
             logText={logText}
             logRef={logRef}
@@ -230,6 +244,7 @@ function App() {
             remuxItems={remuxItems}
             remuxMessage={remuxMessage}
             pendingRemuxId={pendingRemuxId}
+            isRemuxRunning={Boolean(pendingRemuxId)}
             expandedRemuxGroups={expandedRemuxGroups}
             onToggleGroup={toggleRemuxGroup}
             onRemuxAll={handleRemuxAll}

@@ -4,6 +4,7 @@ function RemuxPanel({
   remuxItems,
   remuxMessage,
   pendingRemuxId,
+  isRemuxRunning,
   expandedRemuxGroups,
   onToggleGroup,
   onRemuxAll,
@@ -23,7 +24,10 @@ function RemuxPanel({
             const remuxableItems = items.filter((item) => item.remuxable);
             const processedItems = items.filter((item) => item.outputExists);
             const unavailable =
-              group.available === false || items.length === 0 || remuxableItems.length === 0;
+              group.available === false ||
+              items.length === 0 ||
+              remuxableItems.length === 0 ||
+              isRemuxRunning;
             const isPending = pendingRemuxId === group.id;
             const buttonLabel = isPending
               ? 'Remuxing...'
