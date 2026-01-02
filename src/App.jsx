@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import CategoryControls from './components/CategoryControls.jsx';
+import ThemePicker from './components/ThemePicker.jsx';
 import Tabs from './components/Tabs.jsx';
 import MergePanel from './components/MergePanel.jsx';
 import RemuxPanel from './components/RemuxPanel.jsx';
@@ -19,6 +20,7 @@ function App() {
   const [pendingRemuxId, setPendingRemuxId] = useState(null);
   const [activeTab, setActiveTab] = usePersistantState('media-merge-tab', 'merge');
   const [remuxThreads, setRemuxThreads] = usePersistantState('media-merge-remux-threads', 4);
+  const [themePreference, setThemePreference] = usePersistantState('media-merge-theme', 'system');
   const [expandedRemuxGroups, setExpandedRemuxGroups] = useState(() => new Set());
   const currentChannelRef = useRef(null);
   const logRef = useRef(null);
@@ -58,6 +60,18 @@ function App() {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logText]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    if (themePreference === 'system') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', themePreference);
+    }
+  }, [themePreference]);
 
   async function loadCategories() {
     try {
@@ -211,6 +225,10 @@ function App() {
   return (
     <div className="container">
       <h1>Multi-part Media Merger</h1>
+        <ThemePicker
+            theme={themePreference}
+            onThemeChange={(event) => setThemePreference(event.target.value)}
+        />
       <CategoryControls
         categories={categories}
         currentCategory={currentCategory}
