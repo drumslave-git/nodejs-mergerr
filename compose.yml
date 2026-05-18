@@ -7,12 +7,12 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_UI_PORT}:3000"
-      - QBIT_CATEGORY=${QBIT_CATEGORY}
-      - QBIT_HOST=${QBIT_HOST}
-      - QBIT_PASSWORD=${QBIT_PASSWORD}
-      - QBIT_PORT=${QBIT_PORT}
-      - QBIT_USER=${QBIT_USER}
-      - TORRENTS_DIR=${TORRENTS_DIR}
-      - TORRENTS_DIR_HOST=${TORRENTS_DIR_HOST}
+    environment:
+      QBIT_CATEGORY: ${QBIT_CATEGORY}
+      QBIT_HOST: ${QBIT_HOST}
+      QBIT_PASSWORD: ${QBIT_PASSWORD}
+      QBIT_USER: ${QBIT_USER}
+      TORRENTS_DIR: ${TORRENTS_DIR}
+      TORRENTS_DIR_HOST: ${TORRENTS_DIR_HOST}
     env_file:
       - stack.env
