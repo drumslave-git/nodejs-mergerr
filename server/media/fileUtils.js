@@ -21,13 +21,53 @@ const AUDIO_EXTENSIONS = new Set([
 const isVideoFile = (name) => VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase());
 const isAudioFile = (name) => AUDIO_EXTENSIONS.has(path.extname(name).toLowerCase());
 
-function detectRootFolder(torrentName, fileNames) {
-  if (!torrentName) return '';
-  const posix = `${torrentName}/`;
-  const win = `${torrentName}\\`;
-  return fileNames.some((name) => name.startsWith(posix) || name.startsWith(win))
-    ? torrentName
-    : '';
+function rootFolderCandidates(torrent) {
+  const names = [];
+  const torrentName = torrent?.name;
+  if (torrentName) {
+    names.push(torrentName);
+    if (torrentName.toLowerCase().endsWith('.torrent')) {
+      names.push(torrentName.slice(0, -'.torrent'.length));
+    }
+  }
+  if (torrent?.content_path) {
+    const base = path.basename(torrent.content_path);
+    if (base && base !== '.' && base !== '..') names.push(base);
+  }
+  return [...new Set(names.filter(Boolean))];
+}
+
+function matchesRootPrefix(fileNames, rootFolder) {
+  const posix = `${rootFolder}/`;
+  const win = `${rootFolder}\\`;
+  return fileNames.some((name) => name.startsWith(posix) || name.startsWith(win));
+}
+
+/** When every file shares one top-level directory, use that as the torrent root. */
+function inferRootFolderFromPaths(fileNames) {
+  if (!fileNames.length) return '';
+  let root = null;
+  for (const fullName of fileNames) {
+    const slash = fullName.indexOf('/');
+    const back = fullName.indexOf('\\');
+    let sepIdx = -1;
+    if (slash === -1) sepIdx = back;
+    else if (back === -1) sepIdx = slash;
+    else sepIdx = Math.min(slash, back);
+    if (sepIdx <= 0) return '';
+    const segment = fullName.slice(0, sepIdx);
+    if (root === null) root = segment;
+    else if (root !== segment) return '';
+  }
+  if (!root || !matchesRootPrefix(fileNames, root)) return '';
+  return root;
+}
+
+function detectRootFolder(torrent, fileNames) {
+  for (const name of rootFolderCandidates(torrent)) {
+    if (matchesRootPrefix(fileNames, name)) return name;
+  }
+  return inferRootFolderFromPaths(fileNames);
 }
 
 function stripRoot(fullName, rootFolder) {
@@ -47,11 +87,17 @@ function stripRoot(fullName, rootFolder) {
  *   - allEntries: every file in the torrent
  */
 function getFileListEntries(torrent, files) {
-  const name = torrent.name || torrent.hash || 'Torrent';
   const fileNames = (files || [])
     .map((file) => file && file.name)
     .filter((value) => typeof value === 'string');
-  const rootFolder = detectRootFolder(torrent.name, fileNames);
+  const rootFolder = detectRootFolder(torrent, fileNames);
+  const name =
+    rootFolder ||
+    (torrent.name && torrent.name.toLowerCase().endsWith('.torrent')
+      ? torrent.name.slice(0, -'.torrent'.length)
+      : torrent.name) ||
+    torrent.hash ||
+    'Torrent';
   const basePath = torrent.save_path || '';
 
   let dirPath = basePath;
@@ -113,6 +159,8 @@ module.exports = {
   isVideoFile,
   isAudioFile,
   detectRootFolder,
+  rootFolderCandidates,
+  inferRootFolderFromPaths,
   getFileListEntries,
   normalizeStem,
   getRemuxOutputPathPreview,
