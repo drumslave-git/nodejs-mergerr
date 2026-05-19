@@ -18,6 +18,7 @@ RUN npm run app:build
 EXPOSE 3000
 
 # The application reads configuration from environment variables such as
-# QBIT_HOST, QBIT_PORT, QBIT_USER, QBIT_PASSWORD, TARGET_DIR and
-# QBIT_CATEGORY.  See server.js for defaults.
+# QBIT_HOST, QBIT_PORT, QBIT_USER, QBIT_PASSWORD, QBIT_REQUEST_TIMEOUT_MS,
+# QBIT_MAX_RETRIES, QBIT_RETRY_BACKOFF_MS and PORT. See .env.template for
+# the full list and defaults.
 CMD ["node", "server.js"]

@@ -7,12 +7,17 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_UI_PORT}:3000"
+    # Bare names (list form) let compose forward env vars from the host /
+    # Portainer / CI only when they are set. Anything left unset falls back
+    # to `env_file:` instead of being clobbered with an empty string.
     environment:
-      QBIT_CATEGORY: ${QBIT_CATEGORY}
-      QBIT_HOST: ${QBIT_HOST}
-      QBIT_PASSWORD: ${QBIT_PASSWORD}
-      QBIT_USER: ${QBIT_USER}
-      TORRENTS_DIR: ${TORRENTS_DIR}
-      TORRENTS_DIR_HOST: ${TORRENTS_DIR_HOST}
+      - QBIT_HOST
+      - QBIT_PORT
+      - QBIT_USER
+      - QBIT_PASSWORD
+      - QBIT_REQUEST_TIMEOUT_MS
+      - QBIT_MAX_RETRIES
+      - QBIT_RETRY_BACKOFF_MS
+      - PORT
     env_file:
       - stack.env

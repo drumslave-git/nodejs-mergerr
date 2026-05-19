@@ -2,45 +2,154 @@ const { config, qbitBaseUrl } = require('./config');
 const { log } = require('./log');
 
 let qbitCookie = '';
+let loginPromise = null;
 
 log('info', 'qBittorrent settings', {
   baseUrl: qbitBaseUrl,
-  hasAuth: Boolean(config.qbitUser)
+  hasAuth: Boolean(config.qbitUser),
+  requestTimeoutMs: config.qbitRequestTimeoutMs,
+  maxRetries: config.qbitMaxRetries
 });
 
-async function loginToQbit() {
-  if (!config.qbitUser) {
-    return;
+const RETRYABLE_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EPIPE',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT'
+]);
+
+function extractFetchError(err) {
+  if (!err) return { message: 'Unknown error' };
+  const out = { message: err.message || String(err) };
+  if (err.name && err.name !== 'Error') out.name = err.name;
+  if (err.code) out.code = err.code;
+  const cause = err.cause;
+  if (cause && typeof cause === 'object') {
+    if (cause.code) out.causeCode = cause.code;
+    if (cause.errno) out.causeErrno = cause.errno;
+    if (cause.hostname) out.causeHostname = cause.hostname;
+    if (cause.message && cause.message !== err.message) {
+      out.causeMessage = cause.message;
+    }
   }
+  return out;
+}
+
+function isRetryableError(err) {
+  if (!err) return false;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+  if (err.code && RETRYABLE_CODES.has(err.code)) return true;
+  const causeCode = err.cause && err.cause.code;
+  if (causeCode && RETRYABLE_CODES.has(causeCode)) return true;
+  // Generic undici failure with a cause we couldn't classify above.
+  if (err.message === 'fetch failed' && err.cause) return true;
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function qbitRawFetch(pathname, init = {}) {
+  const url = `${qbitBaseUrl}${pathname}`;
+  let lastError;
+  for (let attempt = 1; attempt <= config.qbitMaxRetries; attempt++) {
+    const signal = AbortSignal.timeout(config.qbitRequestTimeoutMs);
+    try {
+      return await fetch(url, { ...init, signal });
+    } catch (err) {
+      lastError = err;
+      const retryable = isRetryableError(err);
+      const hasMore = attempt < config.qbitMaxRetries;
+      if (!retryable || !hasMore) {
+        throw err;
+      }
+      const delay = config.qbitRetryBackoffMs * 2 ** (attempt - 1);
+      log('warn', 'qBittorrent request errored, retrying', {
+        pathname,
+        attempt,
+        nextAttemptInMs: delay,
+        ...extractFetchError(err)
+      });
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
+
+async function performLogin() {
   log('info', 'Attempting qBittorrent login');
   const params = new URLSearchParams();
   params.set('username', config.qbitUser);
   params.set('password', config.qbitPassword);
-  const res = await fetch(`${qbitBaseUrl}/api/v2/auth/login`, {
+  const res = await qbitRawFetch('/api/v2/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Referer: qbitBaseUrl
+    },
     body: params.toString(),
     redirect: 'manual'
   });
   if (!res.ok) {
     throw new Error(`qBittorrent login failed with status ${res.status}`);
   }
-  const cookieHeader = res.headers.get('set-cookie');
-  if (!cookieHeader) {
+  const body = (await res.text()).trim();
+  if (body && body.toLowerCase() !== 'ok.') {
+    throw new Error(`qBittorrent login rejected: ${body.slice(0, 100)}`);
+  }
+  const cookies =
+    typeof res.headers.getSetCookie === 'function'
+      ? res.headers.getSetCookie()
+      : (() => {
+          const raw = res.headers.get('set-cookie');
+          return raw ? [raw] : [];
+        })();
+  const sid = cookies.find((c) => /^SID=/i.test(c));
+  const chosen = sid || cookies[0];
+  if (!chosen) {
     throw new Error('qBittorrent login did not return a session cookie');
   }
-  qbitCookie = cookieHeader.split(';')[0];
+  qbitCookie = chosen.split(';')[0];
   log('info', 'qBittorrent login succeeded');
 }
 
-async function qbitFetchJson(pathname, allowRetry = true) {
+async function loginToQbit() {
+  if (!config.qbitUser) return;
+  if (loginPromise) return loginPromise;
+  loginPromise = performLogin()
+    .catch((err) => {
+      qbitCookie = '';
+      throw err;
+    })
+    .finally(() => {
+      loginPromise = null;
+    });
+  return loginPromise;
+}
+
+async function qbitFetchJson(pathname, allowAuthRetry = true) {
   const headers = {};
   if (qbitCookie) {
     headers.Cookie = qbitCookie;
   }
-  const res = await fetch(`${qbitBaseUrl}${pathname}`, { headers });
-  if (res.status === 403 && allowRetry && config.qbitUser) {
-    log('warn', 'qBittorrent session rejected, re-authenticating', { pathname });
+  const res = await qbitRawFetch(pathname, { headers });
+  if (
+    (res.status === 401 || res.status === 403) &&
+    allowAuthRetry &&
+    config.qbitUser
+  ) {
+    log('warn', 'qBittorrent session rejected, re-authenticating', {
+      pathname,
+      status: res.status
+    });
     qbitCookie = '';
     await loginToQbit();
     return qbitFetchJson(pathname, false);
@@ -64,7 +173,7 @@ async function fetchQbitCategories() {
     }
     return categories;
   } catch (err) {
-    log('error', 'qBittorrent categories fetch failed', { error: err.message || String(err) });
+    log('error', 'qBittorrent categories fetch failed', extractFetchError(err));
     return null;
   }
 }
@@ -111,7 +220,7 @@ async function fetchCompletedTorrentsWithFiles(categoryId) {
       } catch (err) {
         log('warn', 'qBittorrent file list fetch failed', {
           hash: torrent.hash,
-          error: err.message || String(err)
+          ...extractFetchError(err)
         });
       }
       enriched.push({ torrent, files: Array.isArray(files) ? files : [] });
@@ -122,7 +231,7 @@ async function fetchCompletedTorrentsWithFiles(categoryId) {
     });
     return { torrents: enriched, error: null };
   } catch (err) {
-    log('error', 'qBittorrent scan failed', { error: err.message || String(err) });
+    log('error', 'qBittorrent scan failed', extractFetchError(err));
     return { torrents: null, error: 'qbitUnavailable' };
   }
 }
