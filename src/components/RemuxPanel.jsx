@@ -1,6 +1,12 @@
 import React, { useMemo } from 'react';
+import Badge from './Badge.jsx';
+import Icon from './Icon.jsx';
 import ListFilter from './ListFilter.jsx';
 import LogView from './LogView.jsx';
+import Spinner from './Spinner.jsx';
+
+const MIN_THREADS = 1;
+const MAX_THREADS = 16;
 
 function matchesQuery(group, query) {
   if (!query) return true;
@@ -15,30 +21,56 @@ function RemuxEpisode({ item }) {
   const audioTracks = Array.isArray(item.audioTracks)
     ? item.audioTracks
     : (item.audioFiles || []).map((filePath) => ({ path: filePath, label: '' }));
-
   return (
-    <div className="remux-episode">
-      <div className="remux-episode-title">{item.name}</div>
-      <div className="muted">
-        Audio tracks: {audioCount}
-        <br />
-        Output: {item.outputPath || 'N/A'}
+    <div className="episode">
+      <div className="episode__title">
+        <span>{item.name}</span>
+        {item.outputExists ? (
+          <Badge variant="success">Done</Badge>
+        ) : item.remuxable ? (
+          <Badge variant="accent">{audioCount} audio</Badge>
+        ) : (
+          <Badge variant="warn">No audio match</Badge>
+        )}
       </div>
-      <div className="muted">
-        Status: {item.outputExists ? 'Already remuxed' : 'Not remuxed yet'}
+      <div className="episode__meta episode__output">
+        Output: {item.outputPath || 'N/A'}
       </div>
       {audioTracks.length ? (
         <ul className="file-list">
           {audioTracks.map((track) => (
             <li key={track.path}>
-              {track.label ? `${track.label} - ` : ''}
+              {track.label ? `${track.label} — ` : ''}
               {track.path}
             </li>
           ))}
         </ul>
       ) : null}
-      {item.warning ? <div className="note">{item.warning}</div> : null}
+      {item.warning ? (
+        <div className="card__note">
+          <Icon name="warning" size={14} />
+          <span>{item.warning}</span>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function GroupStatusBadges({ remuxable, processed, total }) {
+  if (total === 0) {
+    return <Badge variant="warn">No videos</Badge>;
+  }
+  if (remuxable === 0) {
+    return <Badge variant="warn">No audio matches</Badge>;
+  }
+  if (processed === total) {
+    return <Badge variant="success">All processed</Badge>;
+  }
+  return (
+    <>
+      <Badge variant="accent">{remuxable} remuxable</Badge>
+      {processed > 0 ? <Badge variant="success">{processed} done</Badge> : null}
+    </>
   );
 }
 
@@ -48,98 +80,177 @@ function RemuxGroup({ group, isPending, isBlocked, isExpanded, onToggle, onRemux
   const processedCount = items.filter((item) => item.outputExists).length;
   const unavailable =
     group.available === false || items.length === 0 || remuxableCount === 0 || isBlocked;
-  const label = isPending ? 'Remuxing...' : unavailable ? 'Not remuxable' : 'Remux all';
+  const buttonLabel = isPending ? 'Remuxing' : unavailable ? 'Not remuxable' : 'Remux all';
   const sectionId = `remux-group-${group.id}`;
 
   return (
-    <div className="media-item">
-      <div className="media-header">
-        <div className="media-title">
+    <article className="card">
+      <div className="card__header">
+        <div className="card__title-block">
+          <div className="card__title">
+            <span>{group.name}</span>
+            <GroupStatusBadges
+              remuxable={remuxableCount}
+              processed={processedCount}
+              total={items.length}
+            />
+          </div>
+          <div className="card__path" title={group.path || group.id}>
+            {group.path || group.id}
+          </div>
+        </div>
+        <div className="card__actions">
           <button
             type="button"
-            className="toggle-button"
-            aria-expanded={isExpanded}
-            aria-controls={sectionId}
-            onClick={() => onToggle(group.id)}
+            className="button"
+            disabled={unavailable || isPending}
+            onClick={() => onRemuxAll(group)}
           >
-            {isExpanded ? 'Hide' : 'Show'}
+            {isPending ? <Spinner /> : null}
+            <span>{buttonLabel}</span>
           </button>
-          <span>{group.name}</span>
         </div>
+      </div>
+
+      <div className="card__meta">
+        <span>
+          <strong>{items.length}</strong> episodes
+        </span>
+        <span>
+          <strong>{remuxableCount}</strong> with external audio
+        </span>
+        <span>
+          <strong>{processedCount}</strong> already done
+        </span>
+      </div>
+
+      <div className="card__footer">
         <button
           type="button"
-          disabled={unavailable || isPending}
-          onClick={() => onRemuxAll(group)}
+          className="link-button"
+          aria-expanded={isExpanded}
+          aria-controls={sectionId}
+          onClick={() => onToggle(group.id)}
+          disabled={items.length === 0}
         >
-          {label}
+          <Icon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={12} />
+          <span style={{ marginLeft: 4 }}>
+            {isExpanded ? 'Hide episodes' : `Show episodes (${items.length})`}
+          </span>
         </button>
       </div>
-      <div className="details">
-        <div>Path: {group.path || group.id}</div>
-        <div>
-          Episodes: {items.length} - remuxable: {remuxableCount} - processed: {processedCount}
+
+      {group.warning ? (
+        <div className="card__note">
+          <Icon name="warning" size={14} />
+          <span>{group.warning}</span>
         </div>
-        {group.warning ? <div className="note">{group.warning}</div> : null}
-        {items.length && isExpanded ? (
-          <div className="remux-episodes" id={sectionId}>
-            {items.map((item) => (
-              <RemuxEpisode key={item.id} item={item} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
+      ) : null}
+
+      {items.length && isExpanded ? (
+        <div className="episodes" id={sectionId}>
+          {items.map((item) => (
+            <RemuxEpisode key={item.id} item={item} />
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ThreadsInput({ value, onChange, disabled }) {
+  return (
+    <label className="number-input">
+      <span>Threads</span>
+      <input
+        type="number"
+        min={MIN_THREADS}
+        max={MAX_THREADS}
+        step={1}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => {
+          const parsed = Number.parseInt(event.target.value, 10);
+          if (!Number.isFinite(parsed)) return;
+          onChange(Math.max(MIN_THREADS, Math.min(parsed, MAX_THREADS)));
+        }}
+      />
+    </label>
   );
 }
 
 function RemuxPanel({
   remuxItems,
   remuxMessage,
+  remuxLoading,
   pendingRemuxId,
   isRemuxRunning,
   expandedGroups,
   onToggleGroup,
   onRemuxAll,
+  threads,
+  onThreadsChange,
   logText,
+  onLogClear,
   search,
   onSearchChange,
   hideUnavailable,
-  onHideUnavailableChange
+  onHideUnavailableChange,
+  hideProcessed,
+  onHideProcessedChange
 }) {
   const query = (search || '').trim().toLowerCase();
   const visibleItems = useMemo(
     () =>
       remuxItems.filter((group) => {
-        if (hideUnavailable) {
-          const items = Array.isArray(group.items) ? group.items : [];
-          if (!items.some((item) => item.remuxable)) return false;
+        const items = Array.isArray(group.items) ? group.items : [];
+        if (hideUnavailable && !items.some((item) => item.remuxable)) return false;
+        if (hideProcessed) {
+          const remuxable = items.filter((item) => item.remuxable);
+          if (remuxable.length > 0 && remuxable.every((item) => item.outputExists)) {
+            return false;
+          }
         }
         return matchesQuery(group, query);
       }),
-    [remuxItems, hideUnavailable, query]
+    [remuxItems, hideUnavailable, hideProcessed, query]
   );
 
   return (
-    <div className="remux-panel">
-      <h2>External Audio Remux</h2>
-      <p>Remux external audio tracks into a single MKV file alongside the main video.</p>
+    <div className="tab-panel">
+      <div className="tab-panel__body">
+      <p className="muted">
+        Combines a video file with its matching external audio tracks (e.g. <code>.aac</code>,{' '}
+        <code>.mka</code>) into a single MKV. Uses <code>-c copy</code>, so no re-encoding.
+      </p>
+
       <ListFilter
         search={search}
         onSearchChange={onSearchChange}
         hideUnavailable={hideUnavailable}
         onHideUnavailableChange={onHideUnavailableChange}
         hideUnavailableLabel="Hide non-remuxable"
+        hideProcessed={hideProcessed}
+        onHideProcessedChange={onHideProcessedChange}
         visibleCount={visibleItems.length}
         totalCount={remuxItems.length}
         searchAriaLabel="Search remux items"
+        trailing={
+          <ThreadsInput value={threads} onChange={onThreadsChange} disabled={isRemuxRunning} />
+        }
       />
-      <div id="remux">
-        {remuxItems.length === 0 ? (
-          <p>{remuxMessage}</p>
-        ) : visibleItems.length === 0 ? (
-          <p>No items match the current filters.</p>
-        ) : (
-          visibleItems.map((group) => (
+
+      {remuxLoading ? (
+        <div className="empty empty--loading">
+          <Spinner /> <span>Scanning category...</span>
+        </div>
+      ) : remuxItems.length === 0 ? (
+        <div className="empty">{remuxMessage}</div>
+      ) : visibleItems.length === 0 ? (
+        <div className="empty">No items match the current filters.</div>
+      ) : (
+        <div className="card-list">
+          {visibleItems.map((group) => (
             <RemuxGroup
               key={group.id}
               group={group}
@@ -149,10 +260,19 @@ function RemuxPanel({
               onToggle={onToggleGroup}
               onRemuxAll={onRemuxAll}
             />
-          ))
-        )}
+          ))}
+        </div>
+      )}
       </div>
-      <LogView id="remux-log" title="Remux Log" logText={logText} />
+
+      <div className="log-dock">
+        <LogView
+          title="Remux log"
+          logText={logText}
+          onClear={onLogClear}
+          busy={isRemuxRunning}
+        />
+      </div>
     </div>
   );
 }

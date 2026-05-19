@@ -1,6 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import Badge from './Badge.jsx';
+import Icon from './Icon.jsx';
 import ListFilter from './ListFilter.jsx';
 import LogView from './LogView.jsx';
+import Spinner from './Spinner.jsx';
 
 function matchesQuery(media, query) {
   if (!query) return true;
@@ -10,86 +13,153 @@ function matchesQuery(media, query) {
   );
 }
 
+function StatusBadge({ media }) {
+  if (media.mergeable === false) {
+    return <Badge variant="warn">Not mergeable</Badge>;
+  }
+  if (media.outputExists) {
+    return <Badge variant="success">Already merged</Badge>;
+  }
+  return <Badge>Pending merge</Badge>;
+}
+
 function MergeItem({ media, isPending, isBlocked, onMerge }) {
+  const [expanded, setExpanded] = useState(false);
   const allFiles = media.filesAll?.length ? media.filesAll : media.files || [];
   const videoCount = media.files?.length || 0;
   const unavailable = media.available === false || media.mergeable === false || isBlocked;
-  const label = isPending ? 'Merging...' : unavailable ? 'Not mergeable' : 'Merge';
+  const buttonLabel = isPending ? 'Merging' : unavailable ? 'Not mergeable' : 'Merge';
 
   return (
-    <div className="media-item">
-      <div className="media-header">
-        <span className="media-title">{media.name}</span>
-        <button type="button" disabled={unavailable || isPending} onClick={() => onMerge(media)}>
-          {label}
+    <article className="card">
+      <div className="card__header">
+        <div className="card__title-block">
+          <div className="card__title">
+            <span>{media.name}</span>
+            <StatusBadge media={media} />
+          </div>
+          <div className="card__path" title={media.id}>
+            {media.id}
+          </div>
+        </div>
+        <div className="card__actions">
+          <button
+            type="button"
+            className="button"
+            disabled={unavailable || isPending}
+            onClick={() => onMerge(media)}
+          >
+            {isPending ? <Spinner /> : null}
+            <span>{buttonLabel}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="card__meta">
+        <span>
+          <strong>{allFiles.length}</strong> files
+        </span>
+        <span>
+          <strong>{videoCount}</strong> video parts
+        </span>
+        <span>
+          Output: <strong>{media.name}.mp4</strong>
+        </span>
+      </div>
+
+      <div className="card__footer">
+        <button
+          type="button"
+          className="link-button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={12} />
+          <span style={{ marginLeft: 4 }}>
+            {expanded ? 'Hide files' : `Show files (${allFiles.length})`}
+          </span>
         </button>
       </div>
-      <div className="details">
-        <div>Path: {media.id}</div>
-        <div>Merged file: {media.name}.mp4</div>
-        <div>Status: {media.outputExists ? 'Already merged' : 'Not merged yet'}</div>
-        <div>
-          Files ({allFiles.length}) - videos: {videoCount}
-        </div>
-        <ul className="file-list">
+
+      {expanded ? (
+        <ul className={`file-list${allFiles.length === 0 ? ' file-list--empty' : ''}`}>
           {allFiles.length ? (
             allFiles.map((filePath) => <li key={filePath}>{filePath}</li>)
           ) : (
             <li>No parts found.</li>
           )}
         </ul>
-        {media.warning ? <div className="note">{media.warning}</div> : null}
-      </div>
-    </div>
+      ) : null}
+
+      {media.warning ? (
+        <div className="card__note">
+          <Icon name="warning" size={14} />
+          <span>{media.warning}</span>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
 function MergePanel({
   mediaItems,
   mediaMessage,
+  mediaLoading,
   pendingMergeId,
   isMergeRunning,
   onMerge,
   logText,
+  onLogClear,
   search,
   onSearchChange,
   hideUnavailable,
-  onHideUnavailableChange
+  onHideUnavailableChange,
+  hideProcessed,
+  onHideProcessedChange
 }) {
   const query = (search || '').trim().toLowerCase();
   const visibleItems = useMemo(
     () =>
       mediaItems.filter((media) => {
         if (hideUnavailable && media.mergeable === false) return false;
+        if (hideProcessed && media.outputExists) return false;
         return matchesQuery(media, query);
       }),
-    [mediaItems, hideUnavailable, query]
+    [mediaItems, hideUnavailable, hideProcessed, query]
   );
 
   return (
-    <>
-      <p>
-        Select a category to scan for multi-part media. A multi-part media item is defined as a
-        directory containing two or more video files. When you press <strong>Merge</strong>, the
-        files will be concatenated in order of their file names using ffmpeg&apos;s concat demuxer.
+    <div className="tab-panel">
+      <div className="tab-panel__body">
+      <p className="muted">
+        Concatenates multi-part torrents (e.g. <code>CD1.mkv</code> + <code>CD2.mkv</code>) into a
+        single <code>.mp4</code> using ffmpeg&apos;s concat demuxer, without re-encoding.
       </p>
+
       <ListFilter
         search={search}
         onSearchChange={onSearchChange}
         hideUnavailable={hideUnavailable}
         onHideUnavailableChange={onHideUnavailableChange}
         hideUnavailableLabel="Hide non-mergeable"
+        hideProcessed={hideProcessed}
+        onHideProcessedChange={onHideProcessedChange}
         visibleCount={visibleItems.length}
         totalCount={mediaItems.length}
         searchAriaLabel="Search merge items"
       />
-      <div id="media">
-        {mediaItems.length === 0 ? (
-          <p>{mediaMessage}</p>
-        ) : visibleItems.length === 0 ? (
-          <p>No items match the current filters.</p>
-        ) : (
-          visibleItems.map((media) => (
+
+      {mediaLoading ? (
+        <div className="empty empty--loading">
+          <Spinner /> <span>Scanning category...</span>
+        </div>
+      ) : mediaItems.length === 0 ? (
+        <div className="empty">{mediaMessage}</div>
+      ) : visibleItems.length === 0 ? (
+        <div className="empty">No items match the current filters.</div>
+      ) : (
+        <div className="card-list">
+          {visibleItems.map((media) => (
             <MergeItem
               key={media.id}
               media={media}
@@ -97,11 +167,20 @@ function MergePanel({
               isBlocked={isMergeRunning}
               onMerge={onMerge}
             />
-          ))
-        )}
+          ))}
+        </div>
+      )}
       </div>
-      <LogView id="log" title="Merge Log" logText={logText} />
-    </>
+
+      <div className="log-dock">
+        <LogView
+          title="Merge log"
+          logText={logText}
+          onClear={onLogClear}
+          busy={isMergeRunning}
+        />
+      </div>
+    </div>
   );
 }
 
