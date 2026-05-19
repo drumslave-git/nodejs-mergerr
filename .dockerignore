@@ -1,4 +1,15 @@
+.git
+.gitignore
+.idea
+.vscode
 node_modules
-.env
-data
 dist
+data
+downloads
+.env
+.env.template
+README.md
+compose*.yml
+Dockerfile
+.dockerignore
+*.log

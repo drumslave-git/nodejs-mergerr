@@ -1,8 +1,11 @@
 {
-  "name": "media-merge-app",
+  "name": "nodejs-mergerr",
   "version": "1.0.0",
-  "description": "A simple Node.js web app to monitor a folder for multi‑part media and merge them on demand.",
+  "description": "Web UI for merging multi-part torrents and remuxing external audio tracks via qBittorrent + ffmpeg.",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "app:dev": "vite --host",
     "app:build": "vite build",

@@ -1,271 +1,117 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import CategoryControls from './components/CategoryControls.jsx';
 import ThemePicker from './components/ThemePicker.jsx';
 import Tabs from './components/Tabs.jsx';
 import MergePanel from './components/MergePanel.jsx';
 import RemuxPanel from './components/RemuxPanel.jsx';
-import usePersistantState from './hooks/usePersistantState.js';
+import usePersistentState from './hooks/usePersistentState.js';
+import useTheme from './hooks/useTheme.js';
+import useCategories from './hooks/useCategories.js';
+import useScanList from './hooks/useScanList.js';
+import useJob from './hooks/useJob.js';
+import { api } from './api/client.js';
+
+const MERGE_MESSAGES = {
+  initial: 'Loading categories...',
+  prompt: 'Select a category to scan.',
+  scanning: 'Scanning...',
+  empty: 'No multi-part folders found.',
+  failed: 'Failed to load media.'
+};
+
+const REMUX_MESSAGES = {
+  initial: 'Loading remux list...',
+  prompt: 'Select a category to scan.',
+  scanning: 'Scanning...',
+  empty: 'No remuxable folders found.',
+  failed: 'Failed to load remux items.'
+};
 
 function App() {
-  const [categories, setCategories] = useState([]);
-  const [currentCategory, setCurrentCategory] = usePersistantState('media-merge-category', '');
-  const [categoryPath, setCategoryPath] = useState('');
-  const [mediaItems, setMediaItems] = useState([]);
-  const [mediaMessage, setMediaMessage] = useState('Loading categories...');
-  const [remuxItems, setRemuxItems] = useState([]);
-  const [remuxMessage, setRemuxMessage] = useState('Loading remux list...');
-  const [logText, setLogText] = useState('');
-  const [currentChannel, setCurrentChannel] = useState(null);
-  const [pendingMergeId, setPendingMergeId] = useState(null);
-  const [pendingRemuxId, setPendingRemuxId] = useState(null);
-  const [activeTab, setActiveTab] = usePersistantState('media-merge-tab', 'merge');
-  const [remuxThreads, setRemuxThreads] = usePersistantState('media-merge-remux-threads', 4);
-  const [themePreference, setThemePreference] = usePersistantState('media-merge-theme', 'system');
-  const [mergeSearch, setMergeSearch] = usePersistantState('media-merge-search-merge', '');
-  const [hideNonMergeable, setHideNonMergeable] = usePersistantState(
+  const [theme, setTheme] = useTheme();
+  const [activeTab, setActiveTab] = usePersistentState('media-merge-tab', 'merge');
+  const [remuxThreads, setRemuxThreads] = usePersistentState('media-merge-remux-threads', 4);
+
+  const [mergeSearch, setMergeSearch] = usePersistentState('media-merge-search-merge', '');
+  const [hideNonMergeable, setHideNonMergeable] = usePersistentState(
     'media-merge-hide-nonmergeable',
     false
   );
-  const [remuxSearch, setRemuxSearch] = usePersistantState('media-merge-search-remux', '');
-  const [hideNonRemuxable, setHideNonRemuxable] = usePersistantState(
+  const [remuxSearch, setRemuxSearch] = usePersistentState('media-merge-search-remux', '');
+  const [hideNonRemuxable, setHideNonRemuxable] = usePersistentState(
     'media-merge-hide-nonremuxable',
     false
   );
-  const [expandedRemuxGroups, setExpandedRemuxGroups] = useState(() => new Set());
-  const currentChannelRef = useRef(null);
-  const logRef = useRef(null);
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
 
-  useEffect(() => {
-    currentChannelRef.current = currentChannel;
-  }, [currentChannel]);
+  const { categories, current, currentPath, setCurrent } = useCategories();
+  const mergeList = useScanList(current, api.listMedia, MERGE_MESSAGES);
+  const remuxList = useScanList(current, api.listRemux, REMUX_MESSAGES);
 
-  useEffect(() => {
-    const source = new EventSource('/events');
-    source.addEventListener('log', (evt) => {
+  const mergeJob = useJob();
+  const remuxJob = useJob();
+
+  const handleMerge = useCallback(
+    (media) =>
+      mergeJob.start(media.id, () => api.startMerge(media.id, current)).catch((err) => {
+        console.error('Failed to start merge', err);
+      }),
+    [mergeJob, current]
+  );
+
+  const handleRemuxAll = useCallback(
+    async (group) => {
+      const requested = window.prompt('Remux threads (1-16):', String(remuxThreads));
+      if (requested === null) return;
+      const parsed = Number.parseInt(requested, 10);
+      const threads = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 16) : remuxThreads;
+      setRemuxThreads(threads);
       try {
-        const payload = JSON.parse(evt.data);
-        if (payload.channel && payload.message) {
-          if (currentChannelRef.current && payload.channel === currentChannelRef.current) {
-            setLogText((prev) => prev + payload.message);
-          }
-        }
+        await remuxJob.start(group.id, () =>
+          api.startRemux({ id: group.id, category: current, mode: 'all', threads })
+        );
       } catch (err) {
-        console.error('Failed to parse log event', err);
+        console.error('Failed to start remux', err);
       }
-    });
+    },
+    [remuxJob, current, remuxThreads, setRemuxThreads]
+  );
 
-    source.onerror = (err) => {
-      console.error('EventSource failed:', err);
-    };
-
-    return () => source.close();
-  }, []);
-
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [logText]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (!root) {
-      return;
-    }
-    if (themePreference === 'system') {
-      root.removeAttribute('data-theme');
-    } else {
-      root.setAttribute('data-theme', themePreference);
-    }
-  }, [themePreference]);
-
-  async function loadCategories() {
-    try {
-      const res = await fetch('/api/categories');
-      const data = await res.json();
-      const list = Array.isArray(data?.categories) ? data.categories : [];
-      setCategories(list);
-      if (list.length === 0) {
-        setCurrentCategory('');
-        setCategoryPath('');
-        setMediaItems([]);
-        setMediaMessage('No categories configured.');
-        return;
-      }
-      const hasStored = currentCategory && list.some((category) => category.id === currentCategory);
-      const initial = hasStored ? currentCategory : list[0].id;
-      setCurrentCategory(initial);
-      const selected = list.find((category) => category.id === initial);
-      setCategoryPath(selected?.path || '');
-      await fetchMedia(initial);
-      await fetchRemux(initial);
-    } catch (err) {
-      console.error('Failed to load categories', err);
-      setMediaItems([]);
-      setMediaMessage('Failed to load categories.');
-      setRemuxItems([]);
-      setRemuxMessage('Failed to load categories.');
-    }
-  }
-
-  async function fetchMedia(categoryId) {
-    if (!categoryId) {
-      setMediaItems([]);
-      setMediaMessage('Select a category to scan.');
-      return;
-    }
-    setMediaItems([]);
-    setMediaMessage('Scanning...');
-    try {
-      const res = await fetch(`/api/media?category=${encodeURIComponent(categoryId)}`);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      setMediaItems(list);
-      if (list.length === 0) {
-        setMediaMessage('No multi-part folders found.');
-      }
-    } catch (err) {
-      console.error('Failed to load media', err);
-      setMediaItems([]);
-      setMediaMessage('Failed to load media.');
-    }
-  }
-
-  async function fetchRemux(categoryId) {
-    if (!categoryId) {
-      setRemuxItems([]);
-      setRemuxMessage('Select a category to scan.');
-      return;
-    }
-    setRemuxItems([]);
-    setRemuxMessage('Scanning...');
-    try {
-      const res = await fetch(`/api/remux?category=${encodeURIComponent(categoryId)}`);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      setRemuxItems(list);
-      if (list.length === 0) {
-        setRemuxMessage('No remuxable folders found.');
-      }
-    } catch (err) {
-      console.error('Failed to load remux items', err);
-      setRemuxItems([]);
-      setRemuxMessage('Failed to load remux items.');
-    }
-  }
-
-  async function handleMerge(media) {
-    setLogText('');
-    setCurrentChannel(null);
-    setPendingMergeId(media.id);
-    try {
-      const res = await fetch('/api/merge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: media.id, category: currentCategory })
-      });
-      const data = await res.json();
-      if (data && data.channel) {
-        setCurrentChannel(data.channel);
-      } else if (!res.ok) {
-        console.error('Merge request failed', data);
-      }
-    } catch (err) {
-      console.error('Failed to start merge', err);
-    } finally {
-      setTimeout(() => {
-        setPendingMergeId((current) => (current === media.id ? null : current));
-      }, 5000);
-    }
-  }
-
-  async function handleRemuxAll(group) {
-    const requested = window.prompt('Remux threads (1-16):', String(remuxThreads));
-    if (requested === null) {
-      return;
-    }
-    const parsed = parseInt(requested, 10);
-    const normalized = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 16) : remuxThreads;
-    setRemuxThreads(normalized);
-    setLogText('');
-    setCurrentChannel(null);
-    setPendingRemuxId(group.id);
-    try {
-      const res = await fetch('/api/remux', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: group.id,
-          category: currentCategory,
-          mode: 'all',
-          threads: normalized
-        })
-      });
-      const data = await res.json();
-      if (data && data.channel) {
-        setCurrentChannel(data.channel);
-      } else if (!res.ok) {
-        console.error('Remux request failed', data);
-      }
-    } catch (err) {
-      console.error('Failed to start remux', err);
-    } finally {
-      setTimeout(() => {
-        setPendingRemuxId((current) => (current === group.id ? null : current));
-      }, 5000);
-    }
-  }
-
-  function toggleRemuxGroup(groupId) {
-    setExpandedRemuxGroups((prev) => {
+  const toggleGroup = useCallback((groupId) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
       return next;
     });
-  }
+  }, []);
+
+  const refreshActive = useCallback(() => {
+    if (activeTab === 'merge') mergeList.reload();
+    else remuxList.reload();
+  }, [activeTab, mergeList, remuxList]);
 
   return (
     <div className="container">
       <h1>Multi-part Media Merger</h1>
-        <ThemePicker
-            theme={themePreference}
-            onThemeChange={(event) => setThemePreference(event.target.value)}
-        />
+      <ThemePicker theme={theme} onThemeChange={(event) => setTheme(event.target.value)} />
       <CategoryControls
         categories={categories}
-        currentCategory={currentCategory}
-        categoryPath={categoryPath}
-        onCategoryChange={(event) => {
-          const next = event.target.value;
-          setCurrentCategory(next);
-          const selected = categories.find((category) => category.id === next);
-          setCategoryPath(selected?.path || '');
-          fetchMedia(next);
-          fetchRemux(next);
-        }}
-        onRefresh={() =>
-          activeTab === 'merge' ? fetchMedia(currentCategory) : fetchRemux(currentCategory)
-        }
+        currentCategory={current}
+        categoryPath={currentPath}
+        onCategoryChange={(event) => setCurrent(event.target.value)}
+        onRefresh={refreshActive}
       />
       <Tabs activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="tab-panel">
         {activeTab === 'merge' ? (
           <MergePanel
-            mediaItems={mediaItems}
-            mediaMessage={mediaMessage}
-            pendingMergeId={pendingMergeId}
-            isMergeRunning={Boolean(pendingMergeId)}
+            mediaItems={mergeList.items}
+            mediaMessage={mergeList.message}
+            pendingMergeId={mergeJob.pendingId}
+            isMergeRunning={mergeJob.isRunning}
             onMerge={handleMerge}
-            logText={logText}
-            logRef={logRef}
+            logText={mergeJob.logText}
             search={mergeSearch}
             onSearchChange={setMergeSearch}
             hideUnavailable={hideNonMergeable}
@@ -273,15 +119,14 @@ function App() {
           />
         ) : (
           <RemuxPanel
-            remuxItems={remuxItems}
-            remuxMessage={remuxMessage}
-            pendingRemuxId={pendingRemuxId}
-            isRemuxRunning={Boolean(pendingRemuxId)}
-            expandedRemuxGroups={expandedRemuxGroups}
-            onToggleGroup={toggleRemuxGroup}
+            remuxItems={remuxList.items}
+            remuxMessage={remuxList.message}
+            pendingRemuxId={remuxJob.pendingId}
+            isRemuxRunning={remuxJob.isRunning}
+            expandedGroups={expandedGroups}
+            onToggleGroup={toggleGroup}
             onRemuxAll={handleRemuxAll}
-            logText={logText}
-            logRef={logRef}
+            logText={remuxJob.logText}
             search={remuxSearch}
             onSearchChange={setRemuxSearch}
             hideUnavailable={hideNonRemuxable}
