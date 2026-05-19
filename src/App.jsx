@@ -21,6 +21,16 @@ function App() {
   const [activeTab, setActiveTab] = usePersistantState('media-merge-tab', 'merge');
   const [remuxThreads, setRemuxThreads] = usePersistantState('media-merge-remux-threads', 4);
   const [themePreference, setThemePreference] = usePersistantState('media-merge-theme', 'system');
+  const [mergeSearch, setMergeSearch] = usePersistantState('media-merge-search-merge', '');
+  const [hideNonMergeable, setHideNonMergeable] = usePersistantState(
+    'media-merge-hide-nonmergeable',
+    false
+  );
+  const [remuxSearch, setRemuxSearch] = usePersistantState('media-merge-search-remux', '');
+  const [hideNonRemuxable, setHideNonRemuxable] = usePersistantState(
+    'media-merge-hide-nonremuxable',
+    false
+  );
   const [expandedRemuxGroups, setExpandedRemuxGroups] = useState(() => new Set());
   const currentChannelRef = useRef(null);
   const logRef = useRef(null);
@@ -256,6 +266,10 @@ function App() {
             onMerge={handleMerge}
             logText={logText}
             logRef={logRef}
+            search={mergeSearch}
+            onSearchChange={setMergeSearch}
+            hideUnavailable={hideNonMergeable}
+            onHideUnavailableChange={setHideNonMergeable}
           />
         ) : (
           <RemuxPanel
@@ -268,6 +282,10 @@ function App() {
             onRemuxAll={handleRemuxAll}
             logText={logText}
             logRef={logRef}
+            search={remuxSearch}
+            onSearchChange={setRemuxSearch}
+            hideUnavailable={hideNonRemuxable}
+            onHideUnavailableChange={setHideNonRemuxable}
           />
         )}
       </div>

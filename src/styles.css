@@ -147,6 +147,48 @@ h1 {
   font-size: 1rem;
 }
 
+.list-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.list-filter-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.list-filter-search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.list-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.list-filter-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.list-filter-count {
+  font-size: 0.85rem;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.9rem;

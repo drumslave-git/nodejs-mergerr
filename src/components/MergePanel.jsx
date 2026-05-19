@@ -7,8 +7,24 @@ function MergePanel({
   isMergeRunning,
   onMerge,
   logText,
-  logRef
+  logRef,
+  search,
+  onSearchChange,
+  hideUnavailable,
+  onHideUnavailableChange
 }) {
+  const query = (search || '').trim().toLowerCase();
+  const visibleItems = mediaItems.filter((media) => {
+    if (hideUnavailable && media.mergeable === false) {
+      return false;
+    }
+    if (!query) return true;
+    const name = (media.name || '').toLowerCase();
+    const path = (media.id || '').toLowerCase();
+    return name.includes(query) || path.includes(query);
+  });
+  const isFiltering = Boolean(query) || hideUnavailable;
+
   return (
     <>
       <p>
@@ -16,11 +32,36 @@ function MergePanel({
         directory containing two or more video files. When you press <strong>Merge</strong>, the
         files will be concatenated in order of their file names using ffmpeg&apos;s concat demuxer.
       </p>
+      <div className="list-filter">
+        <input
+          type="search"
+          className="list-filter-search"
+          placeholder="Search by name or path..."
+          value={search || ''}
+          onChange={(event) => onSearchChange(event.target.value)}
+          aria-label="Search merge items"
+        />
+        <label className="list-filter-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(hideUnavailable)}
+            onChange={(event) => onHideUnavailableChange(event.target.checked)}
+          />
+          Hide non-mergeable
+        </label>
+        {isFiltering && mediaItems.length > 0 ? (
+          <span className="list-filter-count muted">
+            {visibleItems.length} of {mediaItems.length} shown
+          </span>
+        ) : null}
+      </div>
       <div id="media">
         {mediaItems.length === 0 ? (
           <p>{mediaMessage}</p>
+        ) : visibleItems.length === 0 ? (
+          <p>No items match the current filters.</p>
         ) : (
-          mediaItems.map((media) => {
+          visibleItems.map((media) => {
             const allFiles =
               media.filesAll && media.filesAll.length ? media.filesAll : media.files || [];
             const videoCount = (media.files && media.files.length) || 0;

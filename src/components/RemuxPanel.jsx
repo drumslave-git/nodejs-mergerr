@@ -9,17 +9,61 @@ function RemuxPanel({
   onToggleGroup,
   onRemuxAll,
   logText,
-  logRef
+  logRef,
+  search,
+  onSearchChange,
+  hideUnavailable,
+  onHideUnavailableChange
 }) {
+  const query = (search || '').trim().toLowerCase();
+  const visibleItems = remuxItems.filter((group) => {
+    if (hideUnavailable) {
+      const items = Array.isArray(group.items) ? group.items : [];
+      if (!items.some((item) => item.remuxable)) {
+        return false;
+      }
+    }
+    if (!query) return true;
+    const name = (group.name || '').toLowerCase();
+    const path = (group.path || group.id || '').toLowerCase();
+    return name.includes(query) || path.includes(query);
+  });
+  const isFiltering = Boolean(query) || hideUnavailable;
+
   return (
     <div className="remux-panel">
       <h2>External Audio Remux</h2>
       <p>Remux external audio tracks into a single MKV file alongside the main video.</p>
+      <div className="list-filter">
+        <input
+          type="search"
+          className="list-filter-search"
+          placeholder="Search by name or path..."
+          value={search || ''}
+          onChange={(event) => onSearchChange(event.target.value)}
+          aria-label="Search remux items"
+        />
+        <label className="list-filter-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(hideUnavailable)}
+            onChange={(event) => onHideUnavailableChange(event.target.checked)}
+          />
+          Hide non-remuxable
+        </label>
+        {isFiltering && remuxItems.length > 0 ? (
+          <span className="list-filter-count muted">
+            {visibleItems.length} of {remuxItems.length} shown
+          </span>
+        ) : null}
+      </div>
       <div id="remux">
         {remuxItems.length === 0 ? (
           <p>{remuxMessage}</p>
+        ) : visibleItems.length === 0 ? (
+          <p>No items match the current filters.</p>
         ) : (
-          remuxItems.map((group) => {
+          visibleItems.map((group) => {
             const items = Array.isArray(group.items) ? group.items : [];
             const remuxableItems = items.filter((item) => item.remuxable);
             const processedItems = items.filter((item) => item.outputExists);
